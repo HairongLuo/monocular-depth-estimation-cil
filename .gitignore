@@ -1,0 +1,9 @@
+*.pth
+*.npy
+*.csv
+outputs/
+*__pycache__*
+.vscode/
+.ipynb_checkpoints/
+results/
+predictions/
