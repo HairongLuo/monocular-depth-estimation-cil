@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 # Path definitions
 # data_root = '<Path to data>'
-usr_name = '<eth username>'
+usr_name = 'yingzliu'
 root_dir = f'/home/{usr_name}/monocular_depth'
 predictions_dir = os.path.join(root_dir, 'predictions')
 test_list_file = os.path.join(root_dir, 'data', 'test_list.txt')
