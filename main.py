@@ -8,15 +8,16 @@ from torchvision import transforms
 from PIL import Image
 # import matplotlib.pyplot as plt
 from tqdm import tqdm
+import time
 
-usr_name = 'yingzliu'
+usr_name = 'lingxi'
 data_dir = '/cluster/courses/cil/monocular_depth/data'
-local_data_dir = f'/home/{usr_name}/monocular_depth/data'
+local_data_dir = f'/home/{usr_name}/monocular-depth-estimation-cil/data'
 train_dir = os.path.join(data_dir, 'train')
 test_dir = os.path.join(data_dir, 'test')
 train_list_file = os.path.join(local_data_dir, 'train_list.txt')
 test_list_file = os.path.join(local_data_dir, 'test_list.txt')
-output_dir = f'/home/{usr_name}/monocular_depth'
+output_dir = f'/home/{usr_name}/monocular-depth-estimation-cil'
 results_dir = os.path.join(output_dir, 'results')
 predictions_dir = os.path.join(output_dir, 'predictions')
 
@@ -160,6 +161,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
     val_losses = []
         
     for epoch in range(num_epochs):
+
+        start_time = time.time()
         print(f"Epoch {epoch+1}/{num_epochs}")
         
         # Training phase
@@ -173,6 +176,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
             optimizer.zero_grad()
             
             # Forward pass
+            # import ipdb; ipdb.set_trace()
             outputs = model(inputs).unsqueeze(1)
             loss = criterion(outputs, targets)
             
@@ -211,6 +215,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
             best_epoch = epoch
             torch.save(model.state_dict(), os.path.join(results_dir, 'best_model.pth'))
             print(f"New best model saved at epoch {epoch+1} with validation loss: {val_loss:.4f}")
+
+        print("The training time for epoch", epoch, " is: %s.\n" % (time.time() - start_time))
     
     print(f"\nBest model was from epoch {best_epoch+1} with validation loss: {best_val_loss:.4f}")
     
@@ -421,7 +427,10 @@ def scale_invariant_loss(pred, target, epsilon=1e-6):
     loss = torch.mean(term1 - term2)
     return loss
 
-midas = torch.hub.load("intel-isl/MiDaS", "MiDaS_small", pretrained=True)
+
+model_types = ["DPT_Large", "DPT_Hybrid"]
+model_type = model_types[1] 
+midas = torch.hub.load("intel-isl/MiDaS", model_type, pretrained=True)
 def main():
 
     # Create output directories
@@ -429,6 +438,8 @@ def main():
     ensure_dir(predictions_dir)
     
     # Define transforms
+    midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
+    core_transform = midas_transforms.dpt_transform    # required for both 
     train_transform = transforms.Compose([
         transforms.Resize(INPUT_SIZE),
         transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),  # Data augmentation
@@ -441,6 +452,11 @@ def main():
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
+    # train_transform = transforms.Compose([
+    #     transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),  # Data augmentation
+    #     core_transform
+    # ])
+    # test_transform = core_transform
     
     # Create training dataset with ground truth
     train_full_dataset = DepthDataset(
@@ -525,21 +541,21 @@ def main():
     
     # Train the model
     print("Starting training...")
-    model = train_model(model, train_loader, val_loader, criterion, optimizer, 0, DEVICE)
+    model = train_model(model, train_loader, val_loader, criterion, optimizer, 9, DEVICE)
             
     # Evaluate the model on validation set
-    print("Evaluating model on validation set...")
-    metrics = evaluate_model(model, val_loader, DEVICE)
+    # print("Evaluating model on validation set...")
+    # metrics = evaluate_model(model, val_loader, DEVICE)
     
-    # Print metrics
-    print("\nValidation Metrics:")
-    for name, value in metrics.items():
-        print(f"{name}: {value:.4f}")
+    # # Print metrics
+    # print("\nValidation Metrics:")
+    # for name, value in metrics.items():
+    #     print(f"{name}: {value:.4f}")
     
-    # Save metrics to file
-    with open(os.path.join(results_dir, 'validation_metrics.txt'), 'w') as f:
-        for name, value in metrics.items():
-            f.write(f"{name}: {value:.4f}\n")
+    # # Save metrics to file
+    # with open(os.path.join(results_dir, 'validation_metrics.txt'), 'w') as f:
+    #     for name, value in metrics.items():
+    #         f.write(f"{name}: {value:.4f}\n")
     
     # Generate predictions for the test set
     print("Generating predictions for test set...")
