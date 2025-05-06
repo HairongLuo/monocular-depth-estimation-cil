@@ -1,0 +1,19 @@
+paths:
+  usr_name: lingxi          # modify this
+  data_dir: /cluster/courses/cil/monocular_depth/data
+  results_dir: results
+  predictions_dir: predictions
+  best_model_path: results/best_model.pth
+
+training:
+  n_epoch: 9
+  batch_size: 4
+
+model:
+  model_type: DPT_Hybrid
+  backbone: vitb_rn50_384
+  network:
+    n_layer: 0      # not used
+  
+opt:
+  evaluate_best_model: false
