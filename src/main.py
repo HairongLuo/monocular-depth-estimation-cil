@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import wandb
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from PIL import Image
@@ -126,7 +127,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
             loss.backward()
             optimizer.step()
             
-            train_loss += loss.item() * inputs.size(0)
+            curr_train_loss = loss.item() * inputs.size(0)
+            train_loss += curr_train_loss
+
+            wandb.log({
+                "iteration_train_loss": curr_train_loss
+            })
         
         
         train_loss /= len(train_loader.dataset)
@@ -150,6 +156,14 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
         val_losses.append(val_loss)
                 
         print(f"Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}")
+
+        wandb.log(
+            {
+                "epoch": epoch,
+                "epoch_train_loss": train_loss,
+                "epoch_val_loss": val_loss
+            }
+        )
         
         # Save the best model
         if val_loss < best_val_loss:
@@ -163,7 +177,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
     print(f"\nBest model was from epoch {best_epoch+1} with validation loss: {best_val_loss:.4f}")
     
     # Load the best model
-    model.load_state_dict(torch.load(os.path.join(results_dir, 'best_model.pth')), strict=False)
+    model.load_state_dict(torch.load(os.path.join(results_dir, 'best_model.pth')))
+
+    wandb.finish()
     
     return model
 
@@ -431,6 +447,14 @@ def main():
 
     ensure_dir(results_dir)
     ensure_dir(predictions_dir)
+
+    # wandb stuff
+    wandb.init(project="MonocularDepthEstimation")
+    wandb.config = {
+        "epochs": config.training.n_epoch,
+        "batch_size": config.training.batch_size,
+        "learning_rate": LEARNING_RATE
+    }
     
     # Define transforms
     # midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")

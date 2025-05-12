@@ -10,17 +10,16 @@ from PIL import Image
 from tqdm import tqdm
 import time
 
-usr_name = 'lingxi'
-data_dir = '/cluster/courses/cil/monocular_depth/data'
-local_data_dir = f'/home/{usr_name}/monocular-depth-estimation-cil/data'
-train_dir = os.path.join(data_dir, 'train')
-test_dir = os.path.join(data_dir, 'test')
-train_list_file = os.path.join(local_data_dir, 'train_list.txt')
-test_list_file = os.path.join(local_data_dir, 'test_list.txt')
-output_dir = f'/home/{usr_name}/monocular-depth-estimation-cil'
-results_dir = os.path.join(output_dir, 'results')
-predictions_dir = os.path.join(output_dir, 'predictions')
+DATA_DIR = '/cluster/courses/cil/monocular_depth/data'
+TRAIN_DIR = os.path.join(DATA_DIR, 'train')
+TEST_DIR = os.path.join(DATA_DIR, 'test')
+TRAIN_LIST_FILE = 'data/train_list.txt'
+TEST_LIST_FILE = 'data/test_list.txt'
+RESULTS_DIR = 'results'
+PREDICTIONS_DIR = 'predictions'
 
+MODEL_TYPES = ["DPT_Large", "DPT_Hybrid"]
+MODEL_TYPE = MODEL_TYPES[1] 
 BATCH_SIZE = 4
 LEARNING_RATE = 1e-4
 WEIGHT_DECAY = 1e-4
@@ -101,58 +100,6 @@ class DepthDataset(Dataset):
             
             return rgb, self.file_list[idx]  # No depth, just return the filename
 
-class UNetBlock(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(UNetBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
-        self.bn1 = nn.BatchNorm2d(out_channels)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
-        self.bn2 = nn.BatchNorm2d(out_channels)
-        
-    def forward(self, x):
-        x = self.relu(self.bn1(self.conv1(x)))
-        x = self.relu(self.bn2(self.conv2(x)))
-        return x
-
-class SimpleUNet(nn.Module):
-    def __init__(self):
-        super(SimpleUNet, self).__init__()
-        
-        # Encoder blocks
-        self.enc1 = UNetBlock(3, 64)
-        self.enc2 = UNetBlock(64, 128)
-        
-        # Decoder blocks
-        self.dec2 = UNetBlock(128 + 64, 64)
-        self.dec1 = UNetBlock(64, 32)
-        
-        # Final layer
-        self.final = nn.Conv2d(32, 1, kernel_size=1)
-        
-        # Pooling and upsampling
-        self.pool = nn.MaxPool2d(2)
-        
-    def forward(self, x):
-        # Encoder
-        enc1 = self.enc1(x)
-        x = self.pool(enc1)
-        
-        x = self.enc2(x)
-        
-        # Decoder with skip connections
-        x = nn.functional.interpolate(x, size=enc1.shape[2:], mode='bilinear', align_corners=True)
-        x = torch.cat([x, enc1], dim=1)
-        x = self.dec2(x)
-        
-        x = self.dec1(x)
-        x = self.final(x)
-        
-        # Output non-negative depth values
-        x = torch.sigmoid(x)*10
-        
-        return x
-    
 def train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs, device):
     """Train the model and save the best based on validation metrics"""
     best_val_loss = float('inf')
@@ -213,7 +160,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_epoch = epoch
-            torch.save(model.state_dict(), os.path.join(results_dir, 'best_model.pth'))
+            torch.save(model.state_dict(), os.path.join(RESULTS_DIR, 'best_model.pth'))
             print(f"New best model saved at epoch {epoch+1} with validation loss: {val_loss:.4f}")
 
         print("The training time for epoch", epoch, " is: %s.\n" % (time.time() - start_time))
@@ -221,7 +168,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
     print(f"\nBest model was from epoch {best_epoch+1} with validation loss: {best_val_loss:.4f}")
     
     # Load the best model
-    model.load_state_dict(torch.load(os.path.join(results_dir, 'best_model.pth')))
+    model.load_state_dict(torch.load(os.path.join(RESULTS_DIR, 'best_model.pth')))
     
     return model
 
@@ -370,7 +317,7 @@ def generate_test_predictions(model, test_loader, device):
     model.eval()
     
     # Ensure predictions directory exists
-    ensure_dir(predictions_dir)
+    ensure_dir(PREDICTIONS_DIR)
     
     with torch.no_grad():
         for inputs, filenames in tqdm(test_loader, desc="Generating Test Predictions"):
@@ -395,7 +342,7 @@ def generate_test_predictions(model, test_loader, device):
                 
                 # Save depth map prediction as numpy array
                 depth_pred = outputs[i].cpu().squeeze().numpy()
-                np.save(os.path.join(predictions_dir, f"{filename}"), depth_pred)
+                np.save(os.path.join(PREDICTIONS_DIR, f"{filename}"), depth_pred)
             
             # Clean up memory
             del inputs, outputs
@@ -427,15 +374,12 @@ def scale_invariant_loss(pred, target, epsilon=1e-6):
     loss = torch.mean(term1 - term2)
     return loss
 
-
-model_types = ["DPT_Large", "DPT_Hybrid"]
-model_type = model_types[1] 
-midas = torch.hub.load("intel-isl/MiDaS", model_type, pretrained=True)
-def main():
-
+if __name__ == "__main__":
     # Create output directories
-    ensure_dir(results_dir)
-    ensure_dir(predictions_dir)
+    ensure_dir(RESULTS_DIR)
+    ensure_dir(PREDICTIONS_DIR)
+
+    midas = torch.hub.load("intel-isl/MiDaS", MODEL_TYPE, pretrained=True)
     
     # Define transforms
     midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
@@ -460,8 +404,8 @@ def main():
     
     # Create training dataset with ground truth
     train_full_dataset = DepthDataset(
-        data_dir=train_dir,
-        list_file=train_list_file, 
+        data_dir=TRAIN_DIR,
+        list_file=TRAIN_LIST_FILE, 
         transform=train_transform,
         target_transform=target_transform,
         has_gt=True
@@ -469,8 +413,8 @@ def main():
     
     # Create test dataset without ground truth
     test_dataset = DepthDataset(
-        data_dir=test_dir,
-        list_file=test_list_file,
+        data_dir=TEST_DIR,
+        list_file=TEST_LIST_FILE,
         transform=test_transform,
         has_gt=False  # Test set has no ground truth
     )
@@ -541,7 +485,7 @@ def main():
     
     # Train the model
     print("Starting training...")
-    model = train_model(model, train_loader, val_loader, criterion, optimizer, 9, DEVICE)
+    model = train_model(model, train_loader, val_loader, criterion, optimizer, NUM_EPOCHS, DEVICE)
             
     # Evaluate the model on validation set
     # print("Evaluating model on validation set...")
@@ -561,7 +505,5 @@ def main():
     print("Generating predictions for test set...")
     generate_test_predictions(model, test_loader, DEVICE)
     
-    print(f"Results saved to {results_dir}")
-    print(f"All test depth map predictions saved to {predictions_dir}")
-
-main()
+    print(f"Results saved to {RESULTS_DIR}")
+    print(f"All test depth map predictions saved to {PREDICTIONS_DIR}")
