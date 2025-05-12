@@ -12,6 +12,8 @@ import time
 from network.dpt_depth import DPTDepthModel
 # from preprocessing.transforms import transforms
 from omegaconf import OmegaConf
+from network.midas_net import MidasNet
+from network.midas_net_custom import MidasNet_small
 
 BATCH_SIZE = 4
 LEARNING_RATE = 1e-4
@@ -161,7 +163,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
     print(f"\nBest model was from epoch {best_epoch+1} with validation loss: {best_val_loss:.4f}")
     
     # Load the best model
-    model.load_state_dict(torch.load(os.path.join(results_dir, 'best_model.pth')))
+    model.load_state_dict(torch.load(os.path.join(results_dir, 'best_model.pth')), strict=False)
     
     return model
 
@@ -374,16 +376,40 @@ def init_model(configs):
     # model_types = ["DPT_Large", "DPT_Hybrid"]
     # model_type = model_types[1] 
     model_type = model_cfg.model_type
-    backbone = model_cfg.backbone
-    pretrain_model_path = "/home/" + usr_name + "/monocular-depth-estimation-cil/pretrain_weights/dpt_hybrid_384.pt"      # edit your path
-    # midas = torch.hub.load("intel-isl/MiDaS", model_type, pretrained=True)
-    model = DPTDepthModel(
-        path=None,
-        backbone=backbone,     # or "vitb_rn50_384" for hybrid
-        non_negative=True,
-    )
-    state_dict = torch.load(pretrain_model_path, map_location=torch.device('cpu'))          # load to cpu before switching to DEVICE, by default cpu?
-    model.load_state_dict(state_dict)
+
+    if model_type == "DPT_Hybrid":
+        pretrain_model_path = "/home/" + usr_name + "/monocular-depth-estimation-cil/pretrain_weights/dpt_hybrid_384.pt"      # edit your path
+        checkpoint_url = (
+            "https://github.com/isl-org/MiDaS/releases/download/v3/dpt_hybrid_384.pt"
+        )
+        backbone = "vitb_rn50_384"
+        # midas = torch.hub.load("intel-isl/MiDaS", model_type, pretrained=True)
+        model = DPTDepthModel(
+            path=None,
+            backbone=backbone,     # or "vitb_rn50_384" for hybrid
+            non_negative=True,
+        )
+    elif model_type == "MiDaS":
+        pretrain_model_path = "/home/" + usr_name + "/monocular-depth-estimation-cil/pretrain_weights/midas_v21_384.pt"      # edit your path
+        checkpoint_url = (
+            "https://github.com/isl-org/MiDaS/releases/download/v2_1/midas_v21_384.pt"
+        )
+        model = MidasNet()
+    elif model_type == "MiDaS_small":
+        pretrain_model_path = "/home/" + usr_name + "/monocular-depth-estimation-cil/pretrain_weights/midas_v21_small_256.pt"      # edit your path
+        checkpoint_url = (
+            "https://github.com/isl-org/MiDaS/releases/download/v2_1/midas_v21_small_256.pt"
+        )
+        model = MidasNet_small(None, features=64, backbone="efficientnet_lite3", exportable=True, non_negative=True, blocks={'expand': True})
+
+
+    if not os.path.exists(pretrain_model_path):
+        print(f"File not found at {pretrain_model_path}. Downloading from {checkpoint_url}...")
+        state_dict = torch.hub.load_state_dict_from_url(checkpoint_url, map_location=torch.device('cpu'))
+    else:
+        state_dict = torch.load(pretrain_model_path, map_location=torch.device('cpu'))  # load to cpu before switching to DEVICE, by default cpu?
+
+    model.load_state_dict(state_dict, strict=False)        # load to cpu before switching to DEVICE, by default cpu?
     return model
 
 def main():
