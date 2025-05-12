@@ -392,6 +392,7 @@ def init_model(configs):
     # model_types = ["DPT_Large", "DPT_Hybrid"]
     # model_type = model_types[1] 
     model_type = model_cfg.model_type
+    network_cfg = model_cfg.network
 
     if model_type == "DPT_Hybrid":
         pretrain_model_path = "/home/" + usr_name + "/monocular-depth-estimation-cil/pretrain_weights/dpt_hybrid_384.pt"      # edit your path
@@ -416,7 +417,7 @@ def init_model(configs):
         checkpoint_url = (
             "https://github.com/isl-org/MiDaS/releases/download/v2_1/midas_v21_small_256.pt"
         )
-        model = MidasNet_small(None, features=64, backbone="efficientnet_lite3", exportable=True, non_negative=True, blocks={'expand': True})
+        model = MidasNet_small(None, features=64, backbone="efficientnet_lite3", exportable=True, non_negative=True, cfg=network_cfg, blocks={'expand': True})
 
 
     if not os.path.exists(pretrain_model_path):
@@ -445,11 +446,16 @@ def main():
     results_dir = os.path.join(output_dir, 'results')
     predictions_dir = os.path.join(output_dir, 'predictions')
 
+    import time
+    current_time = time.strftime("%Y%m%d-%H%M%S")
+    exp_dir = config.exp_dir + '_' + current_time
     ensure_dir(results_dir)
     ensure_dir(predictions_dir)
 
     # wandb stuff
-    wandb.init(project="MonocularDepthEstimation")
+    wandb.init(mode="disabled" if config.wandb_disable else None,
+               project="MonocularDepthEstimation",
+               name=exp_dir)
     wandb.config = {
         "epochs": config.training.n_epoch,
         "batch_size": config.training.batch_size,

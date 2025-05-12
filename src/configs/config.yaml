@@ -6,14 +6,17 @@ paths:
   best_model_path: results/best_model.pth
 
 training:
-  n_epoch: 9
+  n_epoch: 10
   batch_size: 4
 
 model:
-  model_type: DPT_Hybrid
-  backbone: vitb_rn50_384
+  model_type: MiDaS_small
   network:
-    n_layer: 0      # not used
+    use_lb: true
   
 opt:
   evaluate_best_model: false
+
+
+exp_dir: midas_small_lb
+wandb_disable: True
