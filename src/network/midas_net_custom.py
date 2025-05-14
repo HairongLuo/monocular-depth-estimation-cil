@@ -60,6 +60,7 @@ class MidasNet_small(BaseModel):
 
         use_pretrained = False if path else True
         self.use_lb = cfg.use_lb
+        self.use_dgr = cfg.use_dgr
                 
         self.channels_last = channels_last
         self.blocks = blocks
@@ -88,12 +89,13 @@ class MidasNet_small(BaseModel):
         self.scratch.refinenet2 = FeatureFusionBlock_custom(features2, self.scratch.activation, deconv=False, bn=False, expand=self.expand, align_corners=align_corners)
         self.scratch.refinenet1 = FeatureFusionBlock_custom(features1, self.scratch.activation, deconv=False, bn=False, align_corners=align_corners)
 
-        # DGR ##########
-        self.dgr4 = DGR(features4)
-        self.dgr3 = DGR(features3)
-        self.dgr2 = DGR(features2)
-        self.dgr1 = DGR(features1)
-        ################
+        if self.use_dgr:
+            # DGR ##########
+            self.dgr4 = DGR(features4)
+            self.dgr3 = DGR(features3)
+            self.dgr2 = DGR(features2)
+            self.dgr1 = DGR(features1)
+            ################
 
         self.scratch.output_conv = nn.Sequential(
             nn.Conv2d(features, features//2, kernel_size=3, stride=1, padding=1, groups=self.groups),
@@ -151,12 +153,13 @@ class MidasNet_small(BaseModel):
         layer_3_rn = self.scratch.layer3_rn(layer_3)
         layer_4_rn = self.scratch.layer4_rn(layer_4)
 
-        # DGR ##########
-        layer_1_rn = self.dgr1(self.scratch.layer1_rn(layer_1))
-        layer_2_rn = self.dgr2(self.scratch.layer2_rn(layer_2))
-        layer_3_rn = self.dgr3(self.scratch.layer3_rn(layer_3))
-        layer_4_rn = self.dgr4(self.scratch.layer4_rn(layer_4))
-        ################
+        if self.use_dgr:
+            # DGR ##########
+            layer_1_rn = self.dgr1(self.scratch.layer1_rn(layer_1))
+            layer_2_rn = self.dgr2(self.scratch.layer2_rn(layer_2))
+            layer_3_rn = self.dgr3(self.scratch.layer3_rn(layer_3))
+            layer_4_rn = self.dgr4(self.scratch.layer4_rn(layer_4))
+            ################
 
         path_4 = self.scratch.refinenet4(layer_4_rn)
         path_3 = self.scratch.refinenet3(path_4, layer_3_rn)
