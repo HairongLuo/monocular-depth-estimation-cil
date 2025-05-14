@@ -22,4 +22,4 @@ opt:
 
 
 exp_dir: midas_small_lb
-wandb_disable: True
+wandb_disable: False
