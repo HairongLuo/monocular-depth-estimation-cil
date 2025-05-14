@@ -118,7 +118,7 @@ class Dinov2Head(nn.Module):
                 readout = cls_token.unsqueeze(1).expand_as(x)
                 x = self.readout_projects[i](torch.cat((x, readout), -1))
             
-            guru.info(f"x shape: {x.shape}")
+            # guru.info(f"x shape: {x.shape}")
             x = x.permute(0, 2, 1).reshape((x.shape[0], x.shape[-1], patch_h, patch_w))
             
             x = self.projects[i](x)
@@ -138,15 +138,15 @@ class Dinov2Head(nn.Module):
         path_2 = self.scratch.refinenet2(path_3, layer_2_rn, size=layer_1_rn.shape[2:])
         path_1 = self.scratch.refinenet1(path_2, layer_1_rn)
         
-        guru.info(f"path_1 shape: {path_1.shape}")
+        # guru.info(f"path_1 shape: {path_1.shape}")
         
         out = self.scratch.output_conv1(path_1)
 
-        guru.info(f"out shape: {out.shape}")
+        # guru.info(f"out shape: {out.shape}")
 
         out = F.interpolate(out, (int(patch_h * 14), int(patch_w * 14)), mode="bilinear", align_corners=True)
         
-        guru.info(f"interpolated out shape: {out.shape}")
+        # guru.info(f"interpolated out shape: {out.shape}")
 
         out = self.scratch.output_conv2(out)
         
@@ -292,77 +292,77 @@ class DPTDepthModel(DPT):
     def forward(self, x):
         return super().forward(x).squeeze(dim=1)
 
-class DPTDepthModel_Dinov2(DPT):
-    def __init__(self, path=None, non_negative=True, dinov2_type='dinov2_vitb14', **kwargs):
-        features = kwargs["features"] if "features" in kwargs else 256
-        head_features_1 = kwargs["head_features_1"] if "head_features_1" in kwargs else features
-        head_features_2 = kwargs["head_features_2"] if "head_features_2" in kwargs else 32
-        kwargs.pop("head_features_1", None)
-        kwargs.pop("head_features_2", None)
+# class DPTDepthModel_Dinov2(DPT):
+#     def __init__(self, path=None, non_negative=True, dinov2_type='dinov2_vitb14', **kwargs):
+#         features = kwargs["features"] if "features" in kwargs else 256
+#         head_features_1 = kwargs["head_features_1"] if "head_features_1" in kwargs else features
+#         head_features_2 = kwargs["head_features_2"] if "head_features_2" in kwargs else 32
+#         kwargs.pop("head_features_1", None)
+#         kwargs.pop("head_features_2", None)
 
-        head = nn.Sequential(
-            nn.Conv2d(head_features_1, head_features_1 // 2, kernel_size=3, stride=1, padding=1),
-            Interpolate(scale_factor=2, mode="bilinear", align_corners=True),
-            nn.Conv2d(head_features_1 // 2, head_features_2, kernel_size=3, stride=1, padding=1),
-            # nn.ReLU(True),
-            # nn.Conv2d(head_features_2, 1, kernel_size=1, stride=1, padding=0),
-            nn.ReLU(True) if non_negative else nn.Identity(),
-            nn.Identity(),
-        )
+#         head = nn.Sequential(
+#             nn.Conv2d(head_features_1, head_features_1 // 2, kernel_size=3, stride=1, padding=1),
+#             Interpolate(scale_factor=2, mode="bilinear", align_corners=True),
+#             nn.Conv2d(head_features_1 // 2, head_features_2, kernel_size=3, stride=1, padding=1),
+#             # nn.ReLU(True),
+#             # nn.Conv2d(head_features_2, 1, kernel_size=1, stride=1, padding=0),
+#             nn.ReLU(True) if non_negative else nn.Identity(),
+#             nn.Identity(),
+#         )
 
-        super().__init__(head, **kwargs)
+#         super().__init__(head, **kwargs)
 
-        if path is not None:
-           self.load(path)
+#         if path is not None:
+#            self.load(path)
 
-        # Load DINOv2
-        self.dinov2 = torch.hub.load('facebookresearch/dinov2', dinov2_type)
-        dim = self.dinov2.blocks[0].attn.qkv.in_features
+#         # Load DINOv2
+#         self.dinov2 = torch.hub.load('facebookresearch/dinov2', dinov2_type)
+#         dim = self.dinov2.blocks[0].attn.qkv.in_features
 
-        self.dinov2_head = Dinov2Head(1, dim, 256, use_bn=False, out_channels=[256, 512, 1024, 1024], use_clstoken=False)
+#         self.dinov2_head = Dinov2Head(1, dim, 256, use_bn=False, out_channels=[256, 512, 1024, 1024], use_clstoken=False)
 
-        # Feature fusion and depth prediction
-        self.fusion_head = nn.Sequential(
-            nn.Conv2d(2 * head_features_2, head_features_2, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(True),
-            nn.Conv2d(head_features_2, head_features_2, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(True),
-            nn.Identity(),
-        )
+#         # Feature fusion and depth prediction
+#         self.fusion_head = nn.Sequential(
+#             nn.Conv2d(2 * head_features_2, head_features_2, kernel_size=3, stride=1, padding=1),
+#             nn.ReLU(True),
+#             nn.Conv2d(head_features_2, head_features_2, kernel_size=3, stride=1, padding=1),
+#             nn.ReLU(True),
+#             nn.Identity(),
+#         )
 
-        self.depth_head = nn.Sequential(
-            nn.Conv2d(head_features_2, 1, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(True),
-            nn.Identity(),
-        )
+#         self.depth_head = nn.Sequential(
+#             nn.Conv2d(head_features_2, 1, kernel_size=3, stride=1, padding=1),
+#             nn.ReLU(True),
+#             nn.Identity(),
+#         )
 
-    def forward(self, x):
-        # DINOv2 branch
-        guru.info(f"x shape: {x.shape}")
-        h, w = x.shape[-2:]
-        guru.info(f"h: {h}, w: {w}")
-        patch_h, patch_w = h // 14, w // 14
-        guru.info(f"patch_h: {patch_h}, patch_w: {patch_w}")
-        dinov2_features = self.dinov2.get_intermediate_layers(x, 4, return_class_token=False)
-        guru.info(f"dinov2_features shape: {dinov2_features[0].shape}")
-        dinov2_features = self.dinov2_head(dinov2_features, patch_h, patch_w)
-        # dinov2_features = F.interpolate(dinov2_features, size=(h, w), mode="bilinear", align_corners=True)
-        # (B, 32, 448, 560)
-        guru.info(f"DINOv2 feature shape: {dinov2_features.shape}")
+#     def forward(self, x):
+#         # DINOv2 branch
+#         guru.info(f"x shape: {x.shape}")
+#         h, w = x.shape[-2:]
+#         guru.info(f"h: {h}, w: {w}")
+#         patch_h, patch_w = h // 14, w // 14
+#         guru.info(f"patch_h: {patch_h}, patch_w: {patch_w}")
+#         dinov2_features = self.dinov2.get_intermediate_layers(x, 4, return_class_token=False)
+#         guru.info(f"dinov2_features shape: {dinov2_features[0].shape}")
+#         dinov2_features = self.dinov2_head(dinov2_features, patch_h, patch_w)
+#         # dinov2_features = F.interpolate(dinov2_features, size=(h, w), mode="bilinear", align_corners=True)
+#         # (B, 32, 448, 560)
+#         guru.info(f"DINOv2 feature shape: {dinov2_features.shape}")
 
-        # Depth branch
-        # (B, 32, 448, 560)
-        dpt_features = super().forward(x)
-        guru.info(f"DPT feature shape: {dpt_features.shape}")
+#         # Depth branch
+#         # (B, 32, 448, 560)
+#         dpt_features = super().forward(x)
+#         guru.info(f"DPT feature shape: {dpt_features.shape}")
 
-        # Concatenate DINOv2 and DPT features
-        # (B, 64, 448, 560)
-        features = torch.cat([dinov2_features, dpt_features], dim=1)
-        guru.info(f"Concatenated feature shape: {features.shape}")
+#         # Concatenate DINOv2 and DPT features
+#         # (B, 64, 448, 560)
+#         features = torch.cat([dinov2_features, dpt_features], dim=1)
+#         guru.info(f"Concatenated feature shape: {features.shape}")
 
-        # Feature fusion and depth prediction
-        features = self.fusion_head(features)
-        depth = self.depth_head(features)
-        guru.info(f"Depth shape: {depth.shape}")
+#         # Feature fusion and depth prediction
+#         features = self.fusion_head(features)
+#         depth = self.depth_head(features)
+#         guru.info(f"Depth shape: {depth.shape}")
 
-        return depth
+#         return depth

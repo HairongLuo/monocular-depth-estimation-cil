@@ -7,13 +7,13 @@ import torch.nn as nn
 
 from .base_model import BaseModel
 from .blocks import FeatureFusionBlock, FeatureFusionBlock_custom, Interpolate, _make_encoder
-
+from .localbins_net import LocalBins_Block
 
 class MidasNet_small(BaseModel):
     """Network for monocular depth estimation.
     """
 
-    def __init__(self, path=None, features=64, backbone="efficientnet_lite3", non_negative=True, exportable=True, channels_last=False, align_corners=True,
+    def __init__(self, path=None, features=64, backbone="efficientnet_lite3", non_negative=True, exportable=True, channels_last=False, align_corners=True,cfg=None,
         blocks={'expand': True}):
         """Init.
 
@@ -27,6 +27,7 @@ class MidasNet_small(BaseModel):
         super(MidasNet_small, self).__init__()
 
         use_pretrained = False if path else True
+        self.use_lb = cfg.use_lb
                 
         self.channels_last = channels_last
         self.blocks = blocks
@@ -55,7 +56,6 @@ class MidasNet_small(BaseModel):
         self.scratch.refinenet2 = FeatureFusionBlock_custom(features2, self.scratch.activation, deconv=False, bn=False, expand=self.expand, align_corners=align_corners)
         self.scratch.refinenet1 = FeatureFusionBlock_custom(features1, self.scratch.activation, deconv=False, bn=False, align_corners=align_corners)
 
-        
         self.scratch.output_conv = nn.Sequential(
             nn.Conv2d(features, features//2, kernel_size=3, stride=1, padding=1, groups=self.groups),
             Interpolate(scale_factor=2, mode="bilinear"),
@@ -66,6 +66,24 @@ class MidasNet_small(BaseModel):
             nn.Identity(),
         )
         
+        if self.use_lb:
+            self.local_bins = LocalBins_Block(
+                in_channels=features,  # Adjust based on your architecture
+                n_bins=16,
+                max_depth=10,
+                min_depth=1e-3,
+                bin_embedding_dim=128,
+                n_attractors=[16, 8, 4, 1],
+                attractor_alpha=300,
+                attractor_gamma=2,
+                attractor_kind='sum',
+                attractor_type='inv',
+                inverse_midas=False,
+                min_temp=5,
+                max_temp=50,
+                model_type = "MiDaS_small",
+            )
+
         if path:
             self.load(path)
 
@@ -84,7 +102,6 @@ class MidasNet_small(BaseModel):
             x.contiguous(memory_format=torch.channels_last)
 
 
-        import ipdb; ipdb.set_trace()
         layer_1 = self.pretrained.layer1(x)
         layer_2 = self.pretrained.layer2(layer_1)
         layer_3 = self.pretrained.layer3(layer_2)
@@ -95,15 +112,21 @@ class MidasNet_small(BaseModel):
         layer_3_rn = self.scratch.layer3_rn(layer_3)
         layer_4_rn = self.scratch.layer4_rn(layer_4)
 
-
         path_4 = self.scratch.refinenet4(layer_4_rn)
         path_3 = self.scratch.refinenet3(path_4, layer_3_rn)
         path_2 = self.scratch.refinenet2(path_3, layer_2_rn)
         path_1 = self.scratch.refinenet1(path_2, layer_1_rn)
         
-        out = self.scratch.output_conv(path_1)
+        out_conv = self.scratch.output_conv(path_1)
 
-        return torch.squeeze(out, dim=1)
+        if self.use_lb:
+            rel_depth = torch.squeeze(out_conv, dim=1)
+            out_for_lb = [out_conv, layer_4_rn, path_4, path_3, path_2, path_1]
+            out_local_bins = self.local_bins(out_for_lb, rel_depth)
+            return torch.squeeze(out_local_bins, dim=1)
+        
+        return torch.squeeze(out_conv, dim=1)
+
 
 
 

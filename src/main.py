@@ -10,16 +10,19 @@ from PIL import Image
 # import matplotlib.pyplot as plt
 from tqdm import tqdm
 import time
-from network.dpt_depth import DPTDepthModel, DPTDepthModel_Dinov2
+from network.dpt_depth import DPTDepthModel
 # from preprocessing.transforms import transforms
 from omegaconf import OmegaConf
+from network.midas_net import MidasNet
+from network.midas_net_custom import MidasNet_small
+from network.midas_semantics import MidasNetSemantics
 
 BATCH_SIZE = 4
 LEARNING_RATE = 1e-4
 WEIGHT_DECAY = 1e-4
 NUM_EPOCHS = 1
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-INPUT_SIZE = (448, 560)  # Resize to multiples of both 14 and 16
+INPUT_SIZE = (448, 576)  # Resize to multiples of both 14 and 16
 NUM_WORKERS = 4
 PIN_MEMORY = True
 PROJECT_DIR = os.path.join(os.path.dirname(__file__), '..')
@@ -389,42 +392,60 @@ def init_model(configs):
     usr_name = configs.paths.usr_name
     model_cfg = configs.model
     model_type = model_cfg.model_type
-    backbone = model_cfg.backbone
-    
+    network_cfg = model_cfg.network
     os.makedirs(os.path.join(PROJECT_DIR, "pretrain_weights"), exist_ok=True)
-    
-    model = DPTDepthModel_Dinov2(
-        path=None,
-        backbone=backbone,     # or "vitb_rn50_384" for hybrid
-        non_negative=True,
-        dinov2_type=model_cfg.dinov2_type
-    )
 
-    # Freeze DINOv2 backbone weights
-    for param in model.dinov2.parameters():
-        param.requires_grad = False
-    print("DINOv2 backbone weights frozen")
+    if model_type == "DPT_Hybrid":
+        pretrain_model_path = "/home/" + usr_name + "/monocular-depth-estimation-cil/pretrain_weights/dpt_hybrid_384.pt"      # edit your path
+        checkpoint_url = (
+            "https://github.com/isl-org/MiDaS/releases/download/v3/dpt_hybrid_384.pt"
+        )
+        backbone = "vitb_rn50_384"
+        # midas = torch.hub.load("intel-isl/MiDaS", model_type, pretrained=True)
+        model = DPTDepthModel(
+            path=None,
+            backbone=backbone,     # or "vitb_rn50_384" for hybrid
+            non_negative=True,
+        )
+    elif model_type == "MiDaS":
+        pretrain_model_path = "/home/" + usr_name + "/monocular-depth-estimation-cil/pretrain_weights/midas_v21_384.pt"      # edit your path
+        checkpoint_url = (
+            "https://github.com/isl-org/MiDaS/releases/download/v2_1/midas_v21_384.pt"
+        )
+        model = MidasNet()
+    elif model_type == "MiDaS_small":
+        pretrain_model_path = os.path.join(PROJECT_DIR, "pretrain_weights", "midas_v21_small_256.pt")      # edit your path
+        checkpoint_url = (
+            "https://github.com/isl-org/MiDaS/releases/download/v2_1/midas_v21_small_256.pt"
+        )
+        if model_cfg.dinov2_type is not None:
+            model = MidasNetSemantics(None, features=64, backbone="efficientnet_lite3", exportable=True, 
+                                    non_negative=True, cfg=network_cfg, blocks={'expand': True}, 
+                                    dinov2_type=model_cfg.dinov2_type)
+        else:
+            model = MidasNet_small(None, features=64, backbone="efficientnet_lite3", exportable=True, 
+                                 non_negative=True, cfg=network_cfg, blocks={'expand': True})
 
-    # Check if the model weights file exists. If not, download it
-    pretrain_model_path = os.path.join(PROJECT_DIR, "pretrain_weights", "dpt_hybrid_384.pt")
     if not os.path.exists(pretrain_model_path):
         print(f"Model weights not found at {pretrain_model_path}. Downloading...")
-        os.system(f"wget -O {pretrain_model_path} https://github.com/isl-org/MiDaS/releases/download/v3/dpt_hybrid_384.pt")
+        os.system(f"wget -O {pretrain_model_path} {checkpoint_url}")
+    state_dict = torch.load(pretrain_model_path, map_location=torch.device('cpu'))  # load to cpu before switching to DEVICE, by default cpu?
 
-    # Load pretrained weights for DPT
-    pretrained_dpt_dict = torch.load(pretrain_model_path, map_location=torch.device('cpu'))
-    # Filter out weights that don't exist in the current model
-    dpt_model_dict = model.state_dict()
-    # Only keep weights that exist in both models and have the same shape
-    dpt_filtered_dict = {k: v for k, v in pretrained_dpt_dict.items() 
-                    if k in dpt_model_dict and v.shape == dpt_model_dict[k].shape}
-    # Update the model's state dict with filtered weights
-    dpt_model_dict.update(dpt_filtered_dict)
-    model.load_state_dict(dpt_model_dict, strict=False)
-    # Check which weights were not loaded
-    missing_weights = [k for k in pretrained_dpt_dict.keys() if k not in dpt_model_dict]
-    print(f"Missing weights: {missing_weights}")
-    print(f"Loaded {len(dpt_filtered_dict)}/{len(pretrained_dpt_dict)} pretrained DPT weights")
+    # Load pretrained weights to model
+    if model_cfg.dinov2_type is not None:
+        # Only keep weights to unmodified modules
+        model_dict = model.state_dict()
+        filtered_state_dict = {k: v for k, v in state_dict.items() 
+                        if k in model_dict and v.shape == model_dict[k].shape}
+        # Update the model's state dict with filtered weights
+        model_dict.update(filtered_state_dict)
+        model.load_state_dict(model_dict, strict=False)
+        # Check which weights were not loaded
+        missing_weights = [k for k in state_dict.keys() if k not in model_dict]
+        print(f"Missing weights: {missing_weights}")
+        print(f"Loaded {len(filtered_state_dict)}/{len(state_dict)} pretrained DPT weights")
+    else:
+        model.load_state_dict(state_dict, strict=False)        # load to cpu before switching to DEVICE, by default cpu?
     return model
 
 def main():
@@ -444,11 +465,16 @@ def main():
     results_dir = os.path.join(output_dir, 'results')
     predictions_dir = os.path.join(output_dir, 'predictions')
 
+    import time
+    current_time = time.strftime("%Y%m%d-%H%M%S")
+    exp_dir = config.exp_dir + '_' + current_time
     ensure_dir(results_dir)
     ensure_dir(predictions_dir)
 
     # wandb stuff
-    wandb.init(project="MonocularDepthEstimation")
+    wandb.init(mode="disabled" if config.wandb_disable else None,
+               project="MonocularDepthEstimation",
+               name=exp_dir)
     wandb.config = {
         "epochs": config.training.n_epoch,
         "batch_size": config.training.batch_size,
@@ -593,6 +619,7 @@ def main():
     
     print(f"Results saved to {results_dir}")
     print(f"All test depth map predictions saved to {predictions_dir}")
+
 
 if __name__ == "__main__":
     main()

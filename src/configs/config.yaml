@@ -1,22 +1,25 @@
 paths:
-  usr_name: hrluo
-  data_dir: /home/hrluo/monocular-depth-estimation-cil/data
+  usr_name: hailuo          # modify this
+  data_dir: /cluster/courses/cil/monocular_depth/data
   results_dir: results
   predictions_dir: predictions
   best_model_path: results/best_model.pth
 
 training:
-  n_epoch: 100
+  n_epoch: 10
   batch_size: 4
-  resume_training: false  # Set to true to resume from checkpoint
-  checkpoint_path: "checkpoint_epoch_X.pth"  # Replace X with the epoch number to resume from
 
 model:
-  model_type: DPT_Hybrid
-  backbone: vitb_rn50_384
+  model_type: MiDaS_small
+  dinov2_type: dinov2_vits14
+  # dinov2_type: dinov2_vitb14
+  # dinov2_type: null
   network:
-    n_layer: 0      # not used
-  dinov2_type: dinov2_vitb14
+    use_lb: true
   
 opt:
   evaluate_best_model: false
+
+
+exp_dir: midas_small_lb
+wandb_disable: True
