@@ -10,7 +10,7 @@ from PIL import Image
 # import matplotlib.pyplot as plt
 from tqdm import tqdm
 import time
-from network.dpt_depth import DPTDepthModel
+from network.dpt_depth import DPTDepthModel, DPTDepthModel_Dinov2
 # from preprocessing.transforms import transforms
 from omegaconf import OmegaConf
 
@@ -19,9 +19,10 @@ LEARNING_RATE = 1e-4
 WEIGHT_DECAY = 1e-4
 NUM_EPOCHS = 1
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-INPUT_SIZE = (448, 576)
+INPUT_SIZE = (448, 560)  # Resize to multiples of both 14 and 16
 NUM_WORKERS = 4
 PIN_MEMORY = True
+PROJECT_DIR = os.path.join(os.path.dirname(__file__), '..')
 
 def ensure_dir(directory):
     if not os.path.exists(directory):
@@ -387,19 +388,43 @@ def scale_invariant_loss(pred, target, epsilon=1e-6):
 def init_model(configs):
     usr_name = configs.paths.usr_name
     model_cfg = configs.model
-    # model_types = ["DPT_Large", "DPT_Hybrid"]
-    # model_type = model_types[1] 
     model_type = model_cfg.model_type
     backbone = model_cfg.backbone
-    pretrain_model_path = "/home/" + usr_name + "/monocular-depth-estimation-cil/pretrain_weights/dpt_hybrid_384.pt"      # edit your path
-    # midas = torch.hub.load("intel-isl/MiDaS", model_type, pretrained=True)
-    model = DPTDepthModel(
+    
+    os.makedirs(os.path.join(PROJECT_DIR, "pretrain_weights"), exist_ok=True)
+    
+    model = DPTDepthModel_Dinov2(
         path=None,
         backbone=backbone,     # or "vitb_rn50_384" for hybrid
         non_negative=True,
+        dinov2_type=model_cfg.dinov2_type
     )
-    state_dict = torch.load(pretrain_model_path, map_location=torch.device('cpu'))          # load to cpu before switching to DEVICE, by default cpu?
-    model.load_state_dict(state_dict)
+
+    # Freeze DINOv2 backbone weights
+    for param in model.dinov2.parameters():
+        param.requires_grad = False
+    print("DINOv2 backbone weights frozen")
+
+    # Check if the model weights file exists. If not, download it
+    pretrain_model_path = os.path.join(PROJECT_DIR, "pretrain_weights", "dpt_hybrid_384.pt")
+    if not os.path.exists(pretrain_model_path):
+        print(f"Model weights not found at {pretrain_model_path}. Downloading...")
+        os.system(f"wget -O {pretrain_model_path} https://github.com/isl-org/MiDaS/releases/download/v3/dpt_hybrid_384.pt")
+
+    # Load pretrained weights for DPT
+    pretrained_dpt_dict = torch.load(pretrain_model_path, map_location=torch.device('cpu'))
+    # Filter out weights that don't exist in the current model
+    dpt_model_dict = model.state_dict()
+    # Only keep weights that exist in both models and have the same shape
+    dpt_filtered_dict = {k: v for k, v in pretrained_dpt_dict.items() 
+                    if k in dpt_model_dict and v.shape == dpt_model_dict[k].shape}
+    # Update the model's state dict with filtered weights
+    dpt_model_dict.update(dpt_filtered_dict)
+    model.load_state_dict(dpt_model_dict, strict=False)
+    # Check which weights were not loaded
+    missing_weights = [k for k in pretrained_dpt_dict.keys() if k not in dpt_model_dict]
+    print(f"Missing weights: {missing_weights}")
+    print(f"Loaded {len(dpt_filtered_dict)}/{len(pretrained_dpt_dict)} pretrained DPT weights")
     return model
 
 def main():
@@ -514,14 +539,23 @@ def main():
         print(f"Initially allocated: {torch.cuda.memory_allocated(0) / 1e9:.2f} GB")
     
     model = init_model(config)
-    model = nn.DataParallel(model)
+    # model = nn.DataParallel(model)  # No need for DataParallel if using a single GPU 
     model = model.to(DEVICE)
+
     print(f"Using device: {DEVICE}")
 
     # Print memory usage after model initialization
     if torch.cuda.is_available():
         print(f"Memory allocated after model init: {torch.cuda.memory_allocated(0) / 1e9:.2f} GB")
     
+    # TEST ON SINGLE IMAGE
+    # img = train_full_dataset[0][0]
+    # img = img.unsqueeze(0)
+    # img = img.to(DEVICE)
+    # output = model(img)
+    # print(f"Output shape: {output.shape}")
+
+
     # Define loss function and optimizer
     criterion = scale_invariant_loss
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
@@ -560,4 +594,5 @@ def main():
     print(f"Results saved to {results_dir}")
     print(f"All test depth map predictions saved to {predictions_dir}")
 
-main()
+if __name__ == "__main__":
+    main()
