@@ -98,14 +98,27 @@ class DepthDataset(Dataset):
             
             return rgb, self.file_list[idx]  # No depth, just return the filename
     
-def train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs, device, results_dir):
-    """Train the model and save the best based on validation metrics"""
+def train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs, device, results_dir, model_name, early_stopping_config):
+    """Train the model and save the best based on validation metrics with early stopping
+    
+    Args:
+        early_stopping_config: Dictionary containing early stopping parameters (patience and min_delta)
+    """
     best_val_loss = float('inf')
     best_epoch = 0
     train_losses = []
     val_losses = []
-        
+    
+    # Early stopping variables
+    patience = early_stopping_config.patience
+    min_delta = early_stopping_config.min_delta
+    counter = 0
+    early_stop = False
+    
     for epoch in range(num_epochs):
+        if early_stop:
+            print(f"Early stopping triggered at epoch {epoch+1}")
+            break
 
         start_time = time.time()
         print(f"Epoch {epoch+1}/{num_epochs}")
@@ -121,7 +134,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
             optimizer.zero_grad()
             
             # Forward pass
-            # import ipdb; ipdb.set_trace()
             outputs = model(inputs).unsqueeze(1)
             loss = criterion(outputs, targets)
             
@@ -135,7 +147,6 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
             wandb.log({
                 "iteration_train_loss": curr_train_loss
             })
-        
         
         train_loss /= len(train_loader.dataset)
         train_losses.append(train_loss)
@@ -159,27 +170,33 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
                 
         print(f"Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}")
 
-        wandb.log(
-            {
-                "epoch": epoch,
-                "epoch_train_loss": train_loss,
-                "epoch_val_loss": val_loss
-            }
-        )
-        
-        # Save the best model
-        if val_loss < best_val_loss:
+        # Early stopping check
+        if val_loss < best_val_loss - min_delta:
             best_val_loss = val_loss
             best_epoch = epoch
-            torch.save(model.state_dict(), os.path.join(results_dir, 'best_model.pth'))
+            counter = 0
+            torch.save(model.state_dict(), os.path.join(results_dir, f'best_model_{model_name}.pth'))
             print(f"New best model saved at epoch {epoch+1} with validation loss: {val_loss:.4f}")
+        else:
+            counter += 1
+            print(f"EarlyStopping counter: {counter} out of {patience}")
+            if counter >= patience:
+                early_stop = True
 
+        wandb.log({
+            "epoch": epoch,
+            "epoch_train_loss": train_loss,
+            "epoch_val_loss": val_loss,
+            "early_stopping_counter": counter,
+            "early_stop_triggered": early_stop
+        })
+        
         print("The training time for epoch", epoch, " is: %s.\n" % (time.time() - start_time))
     
     print(f"\nBest model was from epoch {best_epoch+1} with validation loss: {best_val_loss:.4f}")
     
     # Load the best model
-    model.load_state_dict(torch.load(os.path.join(results_dir, 'best_model.pth')))
+    model.load_state_dict(torch.load(os.path.join(results_dir, f'best_model_{model_name}.pth')))
 
     wandb.finish()
     
@@ -449,7 +466,6 @@ def init_model(configs):
     return model
 
 def main():
-
     config_path = os.path.join(os.path.dirname(__file__), 'configs', 'config.yaml')
     config = OmegaConf.load(config_path)
     # Create output directories
@@ -467,19 +483,25 @@ def main():
 
     import time
     current_time = time.strftime("%Y%m%d-%H%M%S")
-    exp_dir = config.exp_dir + '_' + current_time
+    exp_dir = f"{config.experiment.model_name}_{current_time}"  # Use model_name from config
     ensure_dir(results_dir)
     ensure_dir(predictions_dir)
 
     # wandb stuff
-    wandb.init(mode="disabled" if config.wandb_disable else None,
+    wandb.init(mode="disabled" if config.experiment.wandb_disable else None,
                project="MonocularDepthEstimation",
-               name=exp_dir)
-    wandb.config = {
-        "epochs": config.training.n_epoch,
-        "batch_size": config.training.batch_size,
-        "learning_rate": LEARNING_RATE
-    }
+               name=f"{config.experiment.model_name}_{current_time}",  # Add timestamp to wandb run name
+               config={
+                   "epochs": config.training.n_epoch,
+                   "batch_size": config.training.batch_size,
+                   "learning_rate": LEARNING_RATE,
+                   "model_name": config.experiment.model_name,
+                   "run_time": current_time,  # Add timestamp to config
+                   "early_stopping": {
+                       "patience": config.training.early_stopping.patience,
+                       "min_delta": config.training.early_stopping.min_delta
+                   }
+               })
     
     # Define transforms
     # midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
@@ -587,17 +609,18 @@ def main():
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
 
     # evaluate the best model
-    evaluate_best_model = config.opt.evaluate_best_model
-    best_model_path = os.path.join(results_dir, 'best_model.pth')
-    if evaluate_best_model:
-        model.load_state_dict(torch.load(best_model_path, map_location=DEVICE))
-        generate_test_predictions(model, test_loader, DEVICE, predictions_dir)
+    # evaluate_best_model = config.opt.evaluate_best_model
+    # best_model_path = os.path.join(results_dir, 'best_model.pth')
+    # if evaluate_best_model:
+    #     model.load_state_dict(torch.load(best_model_path, map_location=DEVICE))
+    #     generate_test_predictions(model, test_loader, DEVICE, predictions_dir)
     
     
     # Train the model
     print("Starting training...")
     n_epoch = config.training.n_epoch
-    model = train_model(model, train_loader, val_loader, criterion, optimizer, n_epoch, DEVICE, results_dir)
+    model = train_model(model, train_loader, val_loader, criterion, optimizer, n_epoch, DEVICE, results_dir, 
+                       config.experiment.model_name, early_stopping_config=config.training.early_stopping)
             
     # Evaluate the model on validation set
     # print("Evaluating model on validation set...")
