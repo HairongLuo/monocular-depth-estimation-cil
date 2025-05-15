@@ -1,6 +1,7 @@
 *.pth
 *.npy
 *.csv
+*slurm*
 outputs/
 *__pycache__*
 .vscode/
