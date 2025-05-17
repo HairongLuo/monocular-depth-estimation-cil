@@ -6,7 +6,7 @@ paths:
 
 experiment:
   # model_name: midas_semantics  # Name to use when saving the model
-  model_name: midas_small_lb  # Name to use when saving the model
+  model_name: midas_semantics_cross_attention_no_lb  # Name to use when saving the model
   wandb_disable: False
 
 training:
@@ -18,11 +18,11 @@ training:
 
 model:
   model_type: MiDaS_small
-  # dinov2_type: dinov2_vits14
+  dinov2_type: dinov2_vits14
   # dinov2_type: dinov2_vitb14
-  dinov2_type: null
+  # dinov2_type: null
   network:
-    use_lb: true
+    use_lb: false
   
 opt:
   evaluate_best_model: false
