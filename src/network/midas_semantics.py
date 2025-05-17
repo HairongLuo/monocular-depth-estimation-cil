@@ -182,19 +182,19 @@ class MidasNetSemantics(MidasNet_small):
         
         # Multi-scale feature fusion with sequential blocks
         self.fusion_blocks = nn.Sequential(
+            ResidualBlock(features, features),
             # ResidualBlock(features, features),
             # ResidualBlock(features, features),
-            # ResidualBlock(features, features),
-            ResidualBlock(features, features)
+            # ResidualBlock(features, features)
         )
         
         # Improved fusion head with residual connections
         self.fusion_head = nn.Sequential(
             ResidualBlock(features, features // 2),
             # ResidualBlock(features // 2, features // 2),
-            # nn.Conv2d(features // 2, features // 2, kernel_size=3, stride=1, padding=1),
-            # nn.BatchNorm2d(features // 2),
-            # nn.ReLU(True),
+            nn.Conv2d(features // 2, features // 2, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(features // 2),
+            nn.ReLU(True),
         )
         
         # Depth prediction head
