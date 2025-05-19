@@ -27,7 +27,7 @@ model:
   network:
     use_lb: false
   loss_function:
-    grad_loss_alpha: 0.5  # Weight for gradient loss
+    grad_loss_alpha: 0.2  # Weight for gradient loss
 
 opt:
   evaluate_best_model: false
