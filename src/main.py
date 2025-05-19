@@ -216,7 +216,7 @@ def train_model(model, train_loader, val_loader, loss_function, optimizer, devic
         
         # Validation phase
         model.eval()
-        val_loss = 0.0
+        val_loss_combined = 0.0
         val_losses_dict = {'si_loss': 0.0, 'grad_loss': 0.0}
         
         with torch.no_grad():
@@ -227,30 +227,30 @@ def train_model(model, train_loader, val_loader, loss_function, optimizer, devic
                 outputs = model(inputs).unsqueeze(1)
                 
                 # Compute combined loss
-                loss, loss_dict = loss_function(
-                    outputs, 
-                    targets, 
+                loss, loss_dict = combined_loss(
+                    outputs,
+                    targets,
                     config
                 )
                 
+                val_loss_combined += loss.item() * inputs.size(0)
                 # Update loss tracking
-                val_loss += loss.item() * inputs.size(0)
                 for k, v in loss_dict.items():
                     val_losses_dict[k] += v * inputs.size(0)
         
         # Average validation losses
-        val_loss /= len(val_loader.dataset)
+        val_loss_combined /= len(val_loader.dataset)
         for k in val_losses_dict:
             val_losses_dict[k] /= len(val_loader.dataset)
         
         print(f"Train Loss: {train_loss:.4f} (SI: {train_losses_dict['si_loss']:.4f}, "
               f"Grad: {train_losses_dict['grad_loss']:.4f})")
-        print(f"Val Loss: {val_loss:.4f} (SI: {val_losses_dict['si_loss']:.4f}, "
+        print(f"Val Loss: {val_loss_combined:.4f} (SI: {val_losses_dict['si_loss']:.4f}, "
               f"Grad: {val_losses_dict['grad_loss']:.4f})")
 
         # Early stopping check
-        if val_loss < best_val_loss - min_delta:
-            best_val_loss = val_loss
+        if val_loss_combined < best_val_loss - min_delta:
+            best_val_loss = val_loss_combined
             best_epoch = epoch
             counter = 0
             # Save best model and training state
@@ -262,7 +262,7 @@ def train_model(model, train_loader, val_loader, loss_function, optimizer, devic
                 'best_epoch': best_epoch,
                 'early_stopping_counter': counter,
                 'train_loss': train_loss,
-                'val_loss': val_loss,
+                'val_loss': val_loss_combined,
                 'config': {
                     'model_name': model_name,
                     'num_epochs': num_epochs,
@@ -273,7 +273,7 @@ def train_model(model, train_loader, val_loader, loss_function, optimizer, devic
                 }
             }
             torch.save(checkpoint, os.path.join(results_dir, f'best_model_{model_name}.pth'))
-            print(f"New best model saved at epoch {epoch+1} with validation loss: {val_loss:.4f}")
+            print(f"New best model saved at epoch {epoch+1} with validation loss: {val_loss_combined:.4f}")
         else:
             counter += 1
             print(f"EarlyStopping counter: {counter} out of {patience}")
@@ -283,7 +283,8 @@ def train_model(model, train_loader, val_loader, loss_function, optimizer, devic
         wandb.log({
             "epoch": epoch,
             "epoch_train_loss": train_loss,
-            "epoch_val_loss": val_loss,
+            "epoch_val_loss": val_losses_dict['si_loss'],
+            "epoch_val_loss_combined": val_loss_combined,
             **{f"epoch_train_{k}": v for k, v in train_losses_dict.items()},
             **{f"epoch_val_{k}": v for k, v in val_losses_dict.items()},
             "early_stopping_counter": counter,
