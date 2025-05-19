@@ -120,14 +120,59 @@ def gradient_loss(pred, target):
     
     return dx_loss + dy_loss
 
-def combined_loss(pred, target, config):
+def edge_aware_loss(pred, target, rgb, beta=0.5):
     """
-    Combined loss function using scale-invariant and gradient losses.
+    Edge-aware loss for depth estimation.
+    Uses RGB image gradients to weight depth gradients, helping preserve sharp edges.
+    
+    Args:
+        pred: Predicted depth map (B, 1, H, W)
+        target: Ground truth depth map (B, 1, H, W)
+        rgb: RGB input image (B, 3, H, W)
+        beta: Weight for edge-aware loss
+    """
+    # Compute RGB image gradients
+    rgb_dx = torch.abs(rgb[:, :, :, :-1] - rgb[:, :, :, 1:])  # (B, 3, H, W-1)
+    rgb_dy = torch.abs(rgb[:, :, :-1, :] - rgb[:, :, 1:, :])  # (B, 3, H-1, W)
+    
+    # Pad gradients to match dimensions
+    rgb_dx_padded = torch.nn.functional.pad(rgb_dx, (0, 1, 0, 0))  # Pad right
+    rgb_dy_padded = torch.nn.functional.pad(rgb_dy, (0, 0, 0, 1))  # Pad bottom
+    
+    # Compute RGB gradient magnitude using padded gradients
+    rgb_grad_mag = torch.sqrt(rgb_dx_padded.pow(2).mean(dim=1, keepdim=True) + 
+                            rgb_dy_padded.pow(2).mean(dim=1, keepdim=True))
+    
+    # Normalize RGB gradient magnitude to [0, 1]
+    rgb_grad_mag = (rgb_grad_mag - rgb_grad_mag.min()) / (rgb_grad_mag.max() - rgb_grad_mag.min() + 1e-6)
+    
+    # Compute depth gradients
+    pred_dx = torch.abs(pred[:, :, :, :-1] - pred[:, :, :, 1:])
+    pred_dy = torch.abs(pred[:, :, :-1, :] - pred[:, :, 1:, :])
+    target_dx = torch.abs(target[:, :, :, :-1] - target[:, :, :, 1:])
+    target_dy = torch.abs(target[:, :, :-1, :] - target[:, :, 1:, :])
+    
+    # Pad depth gradients to match dimensions
+    pred_dx_padded = torch.nn.functional.pad(pred_dx, (0, 1, 0, 0))
+    pred_dy_padded = torch.nn.functional.pad(pred_dy, (0, 0, 0, 1))
+    target_dx_padded = torch.nn.functional.pad(target_dx, (0, 1, 0, 0))
+    target_dy_padded = torch.nn.functional.pad(target_dy, (0, 0, 0, 1))
+    
+    # Weight depth gradients by RGB gradient magnitude
+    dx_loss = torch.mean(rgb_grad_mag * torch.abs(pred_dx_padded - target_dx_padded))
+    dy_loss = torch.mean(rgb_grad_mag * torch.abs(pred_dy_padded - target_dy_padded))
+    
+    return beta * (dx_loss + dy_loss)
+
+def combined_loss(pred, target, config, rgb=None):
+    """
+    Combined loss function using scale-invariant, gradient, and edge-aware losses.
     
     Args:
         pred: Predicted depth map
         target: Ground truth depth map
-        alpha: Weight for gradient loss
+        config: Configuration object containing loss weights
+        rgb: RGB input image (optional, required for edge-aware loss)
     """
     # Scale-invariant loss
     si_loss = scale_invariant_loss(pred, target)
@@ -135,12 +180,18 @@ def combined_loss(pred, target, config):
     # Gradient loss
     grad_loss = gradient_loss(pred, target) * config.model.loss_function.grad_loss_alpha
     
+    # Edge-aware loss (if RGB image is provided)
+    edge_loss = 0.0
+    if rgb is not None:
+        edge_loss = edge_aware_loss(pred, target, rgb, config.model.loss_function.edge_loss_beta)
+    
     # Combine losses
-    total_loss = si_loss + grad_loss
+    total_loss = si_loss + grad_loss + edge_loss
     
     return total_loss, {
         'si_loss': si_loss.item(),
-        'grad_loss': grad_loss.item()
+        'grad_loss': grad_loss.item(),
+        'edge_loss': edge_loss.item() if rgb is not None else 0.0
     }
 
 def train_model(model, train_loader, val_loader, loss_function, optimizer, device, results_dir, config):
@@ -175,7 +226,7 @@ def train_model(model, train_loader, val_loader, loss_function, optimizer, devic
         # Training phase
         model.train()
         train_loss = 0.0
-        train_losses_dict = {'si_loss': 0.0, 'grad_loss': 0.0}
+        train_losses_dict = {'si_loss': 0.0, 'grad_loss': 0.0, 'edge_loss': 0.0}
         
         for inputs, targets, _ in tqdm(train_loader, desc="Training"):
             inputs, targets = inputs.to(device), targets.to(device)
@@ -186,11 +237,12 @@ def train_model(model, train_loader, val_loader, loss_function, optimizer, devic
             # Forward pass
             outputs = model(inputs).unsqueeze(1)
             
-            # Compute combined loss
+            # Compute combined loss with RGB input for edge-aware loss
             loss, loss_dict = loss_function(
                 outputs, 
                 targets, 
-                config
+                config,
+                rgb=inputs  # Pass RGB input for edge-aware loss
             )
             
             # Backward pass and optimize
@@ -217,7 +269,7 @@ def train_model(model, train_loader, val_loader, loss_function, optimizer, devic
         # Validation phase
         model.eval()
         val_loss_combined = 0.0
-        val_losses_dict = {'si_loss': 0.0, 'grad_loss': 0.0}
+        val_losses_dict = {'si_loss': 0.0, 'grad_loss': 0.0, 'edge_loss': 0.0}
         
         with torch.no_grad():
             for inputs, targets, _ in tqdm(val_loader, desc="Validation"):
@@ -226,11 +278,12 @@ def train_model(model, train_loader, val_loader, loss_function, optimizer, devic
                 # Forward pass
                 outputs = model(inputs).unsqueeze(1)
                 
-                # Compute combined loss
-                loss, loss_dict = combined_loss(
+                # Compute combined loss with RGB input for edge-aware loss
+                loss, loss_dict = loss_function(
                     outputs,
                     targets,
-                    config
+                    config,
+                    rgb=inputs  # Pass RGB input for edge-aware loss
                 )
                 
                 val_loss_combined += loss.item() * inputs.size(0)
@@ -244,9 +297,11 @@ def train_model(model, train_loader, val_loader, loss_function, optimizer, devic
             val_losses_dict[k] /= len(val_loader.dataset)
         
         print(f"Train Loss: {train_loss:.4f} (SI: {train_losses_dict['si_loss']:.4f}, "
-              f"Grad: {train_losses_dict['grad_loss']:.4f})")
+              f"Grad: {train_losses_dict['grad_loss']:.4f}, "
+              f"Edge: {train_losses_dict['edge_loss']:.4f})")
         print(f"Val Loss: {val_loss_combined:.4f} (SI: {val_losses_dict['si_loss']:.4f}, "
-              f"Grad: {val_losses_dict['grad_loss']:.4f})")
+              f"Grad: {val_losses_dict['grad_loss']:.4f}, "
+              f"Edge: {val_losses_dict['edge_loss']:.4f})")
 
         # Early stopping check
         if val_loss_combined < best_val_loss - min_delta:
@@ -294,11 +349,11 @@ def train_model(model, train_loader, val_loader, loss_function, optimizer, devic
         print("The training time for epoch", epoch, " is: %s.\n" % (time.time() - start_time))
     
     print(f"\nBest model was from epoch {best_epoch+1} with validation loss: {best_val_loss:.4f}")
-    
-    # Load the best model
-    model.load_state_dict(torch.load(os.path.join(results_dir, f'best_model_{model_name}.pth')))
 
     wandb.finish()
+    
+    # Load the best model
+    model.load_state_dict(torch.load(os.path.join(results_dir, f'best_model_{model_name}.pth'))["model_state_dict"])
     
     return model
 
