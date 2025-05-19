@@ -98,7 +98,52 @@ class DepthDataset(Dataset):
             
             return rgb, self.file_list[idx]  # No depth, just return the filename
     
-def train_model(model, train_loader, val_loader, criterion, optimizer, device, results_dir, config):
+def gradient_loss(pred, target):
+    """
+    Gradient loss for depth estimation.
+    Computes the difference between gradients of predicted and target depth maps.
+    
+    Args:
+        pred: Predicted depth map (B, 1, H, W)
+        target: Ground truth depth map (B, 1, H, W)
+        alpha: Weight for gradient loss
+    """
+    # Compute gradients in x and y directions
+    pred_dx = torch.abs(pred[:, :, :, :-1] - pred[:, :, :, 1:])
+    pred_dy = torch.abs(pred[:, :, :-1, :] - pred[:, :, 1:, :])
+    target_dx = torch.abs(target[:, :, :, :-1] - target[:, :, :, 1:])
+    target_dy = torch.abs(target[:, :, :-1, :] - target[:, :, 1:, :])
+    
+    # Compute gradient loss
+    dx_loss = torch.mean(torch.abs(pred_dx - target_dx))
+    dy_loss = torch.mean(torch.abs(pred_dy - target_dy))
+    
+    return dx_loss + dy_loss
+
+def combined_loss(pred, target, config):
+    """
+    Combined loss function using scale-invariant and gradient losses.
+    
+    Args:
+        pred: Predicted depth map
+        target: Ground truth depth map
+        alpha: Weight for gradient loss
+    """
+    # Scale-invariant loss
+    si_loss = scale_invariant_loss(pred, target)
+    
+    # Gradient loss
+    grad_loss = gradient_loss(pred, target) * config.model.loss_function.grad_loss_alpha
+    
+    # Combine losses
+    total_loss = si_loss + grad_loss
+    
+    return total_loss, {
+        'si_loss': si_loss.item(),
+        'grad_loss': grad_loss.item()
+    }
+
+def train_model(model, train_loader, val_loader, loss_function, optimizer, device, results_dir, config):
     """Train the model and save the best based on validation metrics with early stopping
     
     Args:
@@ -130,6 +175,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, r
         # Training phase
         model.train()
         train_loss = 0.0
+        train_losses_dict = {'si_loss': 0.0, 'grad_loss': 0.0}
         
         for inputs, targets, _ in tqdm(train_loader, desc="Training"):
             inputs, targets = inputs.to(device), targets.to(device)
@@ -139,25 +185,39 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, r
             
             # Forward pass
             outputs = model(inputs).unsqueeze(1)
-            loss = criterion(outputs, targets)
+            
+            # Compute combined loss
+            loss, loss_dict = loss_function(
+                outputs, 
+                targets, 
+                config
+            )
             
             # Backward pass and optimize
             loss.backward()
             optimizer.step()
             
+            # Update loss tracking
             curr_train_loss = loss.item() * inputs.size(0)
             train_loss += curr_train_loss
-
+            curr_train_losses_dict = {k: v * inputs.size(0) for k, v in loss_dict.items()}
+            for k, v in curr_train_losses_dict.items():
+                train_losses_dict[k] += v
+            
             wandb.log({
-                "iteration_train_loss": curr_train_loss
+                "iteration_train_loss": curr_train_loss,
+                **{f"iteration_{k}": v for k, v in curr_train_losses_dict.items()}
             })
         
+        # Average losses
         train_loss /= len(train_loader.dataset)
-        train_losses.append(train_loss)
+        for k in train_losses_dict:
+            train_losses_dict[k] /= len(train_loader.dataset)
         
         # Validation phase
         model.eval()
         val_loss = 0.0
+        val_losses_dict = {'si_loss': 0.0, 'grad_loss': 0.0}
         
         with torch.no_grad():
             for inputs, targets, _ in tqdm(val_loader, desc="Validation"):
@@ -165,14 +225,28 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, r
                 
                 # Forward pass
                 outputs = model(inputs).unsqueeze(1)
-                loss = criterion(outputs, targets)
                 
+                # Compute combined loss
+                loss, loss_dict = loss_function(
+                    outputs, 
+                    targets, 
+                    config
+                )
+                
+                # Update loss tracking
                 val_loss += loss.item() * inputs.size(0)
+                for k, v in loss_dict.items():
+                    val_losses_dict[k] += v * inputs.size(0)
         
+        # Average validation losses
         val_loss /= len(val_loader.dataset)
-        val_losses.append(val_loss)
-                
-        print(f"Train Loss: {train_loss:.4f}, Validation Loss: {val_loss:.4f}")
+        for k in val_losses_dict:
+            val_losses_dict[k] /= len(val_loader.dataset)
+        
+        print(f"Train Loss: {train_loss:.4f} (SI: {train_losses_dict['si_loss']:.4f}, "
+              f"Grad: {train_losses_dict['grad_loss']:.4f})")
+        print(f"Val Loss: {val_loss:.4f} (SI: {val_losses_dict['si_loss']:.4f}, "
+              f"Grad: {val_losses_dict['grad_loss']:.4f})")
 
         # Early stopping check
         if val_loss < best_val_loss - min_delta:
@@ -210,6 +284,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, r
             "epoch": epoch,
             "epoch_train_loss": train_loss,
             "epoch_val_loss": val_loss,
+            **{f"epoch_train_{k}": v for k, v in train_losses_dict.items()},
+            **{f"epoch_val_{k}": v for k, v in val_losses_dict.items()},
             "early_stopping_counter": counter,
             "early_stop_triggered": early_stop
         })
@@ -642,8 +718,7 @@ def main():
     # print(f"Output shape: {output.shape}")
 
 
-    # Define loss function and optimizer
-    criterion = scale_invariant_loss
+    # Define optimizer
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
 
     # evaluate the best model
@@ -656,7 +731,7 @@ def main():
     
     # Train the model
     print("Starting training...")
-    model = train_model(model, train_loader, val_loader, criterion, optimizer, DEVICE, results_dir, config)
+    model = train_model(model, train_loader, val_loader, combined_loss, optimizer, DEVICE, results_dir, config)
             
     # Evaluate the model on validation set
     # print("Evaluating model on validation set...")

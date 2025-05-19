@@ -5,15 +5,14 @@ paths:
   predictions_dir: predictions
 
 experiment:
-  # model_name: midas_semantics  # Name to use when saving the model
-  model_name: midas_semantics_cross_attention_no_lb  # Name to use when saving the model
+  model_name: midas_small_nolb_w_grad_loss  # Name to use when saving the model
   wandb_disable: False
 
 training:
   n_epoch: 10
   batch_size: 4
   resume_training: 
-    resume: True
+    resume: False
     resume_from_epoch: 6
     run_id: 7iju0bam
   early_stopping:
@@ -22,11 +21,13 @@ training:
 
 model:
   model_type: MiDaS_small
-  dinov2_type: dinov2_vits14
+  # dinov2_type: dinov2_vits14
   # dinov2_type: dinov2_vitb14
-  # dinov2_type: null
+  dinov2_type: null
   network:
     use_lb: false
-  
+  loss_function:
+    grad_loss_alpha: 0.5  # Weight for gradient loss
+
 opt:
   evaluate_best_model: false
