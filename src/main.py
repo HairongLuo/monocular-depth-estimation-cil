@@ -98,16 +98,20 @@ class DepthDataset(Dataset):
             
             return rgb, self.file_list[idx]  # No depth, just return the filename
     
-def train_model(model, train_loader, val_loader, criterion, optimizer, num_epochs, device, results_dir, model_name, early_stopping_config):
+def train_model(model, train_loader, val_loader, criterion, optimizer, device, results_dir, config):
     """Train the model and save the best based on validation metrics with early stopping
     
     Args:
         early_stopping_config: Dictionary containing early stopping parameters (patience and min_delta)
     """
+    start_epoch = config.training.resume_training.resume_from_epoch if config.training.resume_training.resume else 0
     best_val_loss = float('inf')
-    best_epoch = 0
+    best_epoch = start_epoch
     train_losses = []
     val_losses = []
+    num_epochs = config.training.n_epoch
+    model_name = config.experiment.model_name
+    early_stopping_config = config.training.early_stopping
     
     # Early stopping variables
     patience = early_stopping_config.patience
@@ -115,7 +119,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
     counter = 0
     early_stop = False
     
-    for epoch in range(num_epochs):
+    for epoch in range(start_epoch, num_epochs):
         if early_stop:
             print(f"Early stopping triggered at epoch {epoch+1}")
             break
@@ -175,7 +179,26 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, num_epoch
             best_val_loss = val_loss
             best_epoch = epoch
             counter = 0
-            torch.save(model.state_dict(), os.path.join(results_dir, f'best_model_{model_name}.pth'))
+            # Save best model and training state
+            checkpoint = {
+                'epoch': epoch + 1,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'best_val_loss': best_val_loss,
+                'best_epoch': best_epoch,
+                'early_stopping_counter': counter,
+                'train_loss': train_loss,
+                'val_loss': val_loss,
+                'config': {
+                    'model_name': model_name,
+                    'num_epochs': num_epochs,
+                    'early_stopping': {
+                        'patience': patience,
+                        'min_delta': min_delta
+                    }
+                }
+            }
+            torch.save(checkpoint, os.path.join(results_dir, f'best_model_{model_name}.pth'))
             print(f"New best model saved at epoch {epoch+1} with validation loss: {val_loss:.4f}")
         else:
             counter += 1
@@ -443,6 +466,18 @@ def init_model(configs):
             model = MidasNet_small(None, features=64, backbone="efficientnet_lite3", exportable=True, 
                                  non_negative=True, cfg=network_cfg, blocks={'expand': True})
 
+    # Check if we should resume training
+    if hasattr(configs.training, 'resume_training') and configs.training.resume_training.resume:
+        best_model_path = os.path.join(PROJECT_DIR, "results", f'best_model_{configs.experiment.model_name}.pth')
+        if os.path.exists(best_model_path):
+            print(f"Resuming training from best model: {best_model_path}")
+            state_dict = torch.load(best_model_path, map_location=torch.device('cpu'))
+            model.load_state_dict(state_dict)
+            return model
+        else:
+            print(f"No best model found at {best_model_path}. Loading pretrained weights instead.")
+
+    # Load pretrained weights if not resuming
     if not os.path.exists(pretrain_model_path):
         print(f"Model weights not found at {pretrain_model_path}. Downloading...")
         os.system(f"wget -O {pretrain_model_path} {checkpoint_url}")
@@ -490,13 +525,16 @@ def main():
     # wandb stuff
     wandb.init(mode="disabled" if config.experiment.wandb_disable else None,
                project="MonocularDepthEstimation",
-               name=f"{config.experiment.model_name}_{current_time}",  # Add timestamp to wandb run name
+               name=f"{config.experiment.model_name}_{current_time}" if not config.training.resume_training.resume else None,
+               id=config.training.resume_training.run_id if config.training.resume_training.resume else None,
+               resume="allow" if config.training.resume_training.resume else None,
                config={
                    "epochs": config.training.n_epoch,
                    "batch_size": config.training.batch_size,
                    "learning_rate": LEARNING_RATE,
                    "model_name": config.experiment.model_name,
                    "run_time": current_time,  # Add timestamp to config
+                   "resume_training": config.training.resume_training.resume,
                    "early_stopping": {
                        "patience": config.training.early_stopping.patience,
                        "min_delta": config.training.early_stopping.min_delta
@@ -618,9 +656,7 @@ def main():
     
     # Train the model
     print("Starting training...")
-    n_epoch = config.training.n_epoch
-    model = train_model(model, train_loader, val_loader, criterion, optimizer, n_epoch, DEVICE, results_dir, 
-                       config.experiment.model_name, early_stopping_config=config.training.early_stopping)
+    model = train_model(model, train_loader, val_loader, criterion, optimizer, DEVICE, results_dir, config)
             
     # Evaluate the model on validation set
     # print("Evaluating model on validation set...")

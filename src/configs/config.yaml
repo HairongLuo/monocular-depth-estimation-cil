@@ -12,6 +12,10 @@ experiment:
 training:
   n_epoch: 10
   batch_size: 4
+  resume_training: 
+    resume: True
+    resume_from_epoch: 6
+    run_id: 7iju0bam
   early_stopping:
     patience: 2
     min_delta: 1e-4
