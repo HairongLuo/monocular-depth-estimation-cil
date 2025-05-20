@@ -9,37 +9,6 @@ from .base_model import BaseModel
 from .blocks import FeatureFusionBlock, FeatureFusionBlock_custom, Interpolate, _make_encoder
 from .localbins_net import LocalBins_Block
 
-# ─── Depth Gradient Refinement block ────────────────────────────────
-class DGR(nn.Module):
-    """
-    Light edge-sharpening & channel-recalibration module.
-    """
-    def __init__(self, ch):
-        super().__init__()
-        # depth-wise Laplacian kernels (∇² and ∇³)
-        self.lap2 = nn.Conv2d(ch, ch, 3, 1, 1, bias=False, groups=ch)
-        self.lap3 = nn.Conv2d(ch, ch, 3, 1, 1, bias=False, groups=ch)
-        with torch.no_grad():
-            lap = torch.tensor([[0,1,0],[1,-4,1],[0,1,0]], dtype=torch.float32)
-            self.lap2.weight.copy_(lap.repeat(ch,1,1,1))
-            self.lap3.weight.copy_((lap*lap).repeat(ch,1,1,1))
-        for p in self.parameters():  # keep them frozen
-            p.requires_grad = False
-
-        # channel & spatial recalibration
-        self.recalib = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
-            nn.Conv2d(3*ch, ch//8, 1), nn.GELU(),
-            nn.Conv2d(ch//8, 3*ch, 1), nn.Sigmoid()
-        )
-        self.spatial = nn.Conv2d(3*ch, 3*ch, 3, 1, 1, groups=3*ch)
-
-    def forward(self, x):
-        l2, l3 = self.lap2(x), self.lap3(x)
-        f = torch.cat([x, l2, l3], 1)
-        f = f * self.recalib(f)
-        f = self.spatial(f)
-        return f[:, :x.shape[1]] + x      # residual
 
 class MidasNet_small(BaseModel):
     """Network for monocular depth estimation.
@@ -60,7 +29,6 @@ class MidasNet_small(BaseModel):
 
         use_pretrained = False if path else True
         self.use_lb = cfg.use_lb
-        self.use_dgr = cfg.use_dgr
                 
         self.channels_last = channels_last
         self.blocks = blocks
@@ -89,14 +57,7 @@ class MidasNet_small(BaseModel):
         self.scratch.refinenet2 = FeatureFusionBlock_custom(features2, self.scratch.activation, deconv=False, bn=False, expand=self.expand, align_corners=align_corners)
         self.scratch.refinenet1 = FeatureFusionBlock_custom(features1, self.scratch.activation, deconv=False, bn=False, align_corners=align_corners)
 
-        if self.use_dgr:
-            # DGR ##########
-            self.dgr4 = DGR(features4)
-            self.dgr3 = DGR(features3)
-            self.dgr2 = DGR(features2)
-            self.dgr1 = DGR(features1)
-            ################
-
+        
         self.scratch.output_conv = nn.Sequential(
             nn.Conv2d(features, features//2, kernel_size=3, stride=1, padding=1, groups=self.groups),
             Interpolate(scale_factor=2, mode="bilinear"),
@@ -153,13 +114,6 @@ class MidasNet_small(BaseModel):
         layer_3_rn = self.scratch.layer3_rn(layer_3)
         layer_4_rn = self.scratch.layer4_rn(layer_4)
 
-        if self.use_dgr:
-            # DGR ##########
-            layer_1_rn = self.dgr1(self.scratch.layer1_rn(layer_1))
-            layer_2_rn = self.dgr2(self.scratch.layer2_rn(layer_2))
-            layer_3_rn = self.dgr3(self.scratch.layer3_rn(layer_3))
-            layer_4_rn = self.dgr4(self.scratch.layer4_rn(layer_4))
-            ################
 
         path_4 = self.scratch.refinenet4(layer_4_rn)
         path_3 = self.scratch.refinenet3(path_4, layer_3_rn)
