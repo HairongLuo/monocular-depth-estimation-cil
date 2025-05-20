@@ -24,8 +24,7 @@ model:
   # dinov2_type: dinov2_vits14
   # dinov2_type: dinov2_vitb14
   dinov2_type: null
-  network:
-    use_lb: false
+  use_lb: false
   loss_function:
     grad_loss_alpha: 0.2  # Weight for gradient loss
     edge_loss_beta: 0.5  # Weight for edge-aware loss
