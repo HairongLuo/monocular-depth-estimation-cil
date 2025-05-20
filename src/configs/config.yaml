@@ -13,6 +13,7 @@ model:
   model_type: MiDaS_small
   network:
     use_lb: true
+    use_dgr: true
   
 opt:
   evaluate_best_model: false
