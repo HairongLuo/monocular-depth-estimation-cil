@@ -442,15 +442,18 @@ def main():
     test_dir = os.path.join(data_dir, 'test')
     train_list_file = os.path.join(local_data_dir, 'train_list.txt')
     test_list_file = os.path.join(local_data_dir, 'test_list.txt')
-    output_dir = f'/home/{usr_name}/monocular-depth-estimation-cil'
-    results_dir = os.path.join(output_dir, 'results')
-    predictions_dir = os.path.join(output_dir, 'predictions')
-
     import time
     current_time = time.strftime("%Y%m%d-%H%M%S")
-    exp_dir = config.exp_dir + '_' + current_time
-    ensure_dir(results_dir)
-    ensure_dir(predictions_dir)
+    exp_name = config.exp_name
+    exp_name = f"{exp_name}_{current_time}"
+    output_dir = f'/home/{usr_name}/monocular-depth-estimation-cil'
+    output_dir = os.path.join(output_dir, 'exp', exp_name)
+    os.makedirs(output_dir, exist_ok=True)
+    results_dir = os.path.join(output_dir, 'results')
+    os.makedirs(results_dir, exist_ok=True)
+    predictions_dir = os.path.join(output_dir, 'predictions')
+    os.makedirs(predictions_dir, exist_ok=True)
+
 
     # wandb stuff
     wandb.init(mode="disabled" if config.wandb_disable else None,

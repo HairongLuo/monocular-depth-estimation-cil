@@ -19,5 +19,5 @@ opt:
   evaluate_best_model: false
 
 
-exp_dir: midas_small_lb
+exp_name: midas_small_lb
 wandb_disable: True
