@@ -246,7 +246,8 @@ class MidasNetSemantics(MidasNet_small):
         # Apply cross attention
         attended_features = self.cross_attention(midas_features, dinov2_features)
         # Concatenate and fuse
-        concat_features = torch.cat([attended_features, dinov2_features], dim=1)
+        # concat_features = torch.cat([attended_features, dinov2_features], dim=1)
+        concat_features = torch.cat([attended_features, midas_features], dim=1)
         
         # Apply fusion blocks sequentially
         fused = self.fusion_blocks(concat_features)
