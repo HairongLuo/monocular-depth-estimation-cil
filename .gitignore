@@ -11,3 +11,4 @@ predictions/
 local/
 pretrain_weights/
 wandb/
+visualization/
