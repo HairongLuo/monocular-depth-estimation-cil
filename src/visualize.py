@@ -24,12 +24,12 @@ from tqdm import tqdm
 
 GT_DIR = "/cluster/courses/cil/monocular_depth/data/train"
 PROJECT_DIR = os.path.join(os.path.dirname(__file__), '..')
-OUTPUT_DIR = os.path.join(PROJECT_DIR, "visualization")
 TRAIN_LIST_PATH = os.path.join(PROJECT_DIR, 'data', 'train_list.txt')
 INPUT_SIZE = (448, 576)
 N_SAMPLES = 100  # Number of samples to visualize
 MODEL_TYPE = 'MiDaS_small'  # Model type to visualize
-CHECKPOINT_FILE = "best_model_midas_small_nolb_w_grad_loss_edge_loss.pth"  # Model checkpoint to visualize with
+CHECKPOINT_FILE = "best_model_midas_small_nolb.pth"  # Model checkpoint to visualize with
+OUTPUT_DIR = os.path.join(PROJECT_DIR, "visualization", CHECKPOINT_FILE.split('.')[0].replace('best_model_', ''))
 CHECKPOINT_PATH = os.path.join(PROJECT_DIR, "results", CHECKPOINT_FILE)
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'configs', 'config.yaml')
