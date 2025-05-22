@@ -16,6 +16,7 @@ from omegaconf import OmegaConf
 from network.midas_net import MidasNet
 from network.midas_net_custom import MidasNet_small
 from network.midas_semantics import MidasNetSemantics
+from network.midas_skip import MidasNetSkip
 
 BATCH_SIZE = 4
 LEARNING_RATE = 1e-4
@@ -594,9 +595,15 @@ def init_model(configs):
             model = MidasNetSemantics(None, features=64, backbone="efficientnet_lite3", exportable=True, 
                                     non_negative=True, cfg=network_cfg, blocks={'expand': True}, 
                                     dinov2_type=model_cfg.dinov2_type)
+        elif model_cfg.use_skip:
+            model = MidasNetSkip(None, features=64, backbone="efficientnet_lite3", exportable=True, 
+                                 non_negative=True, cfg=network_cfg, blocks={'expand': True})
         else:
             model = MidasNet_small(None, features=64, backbone="efficientnet_lite3", exportable=True, 
                                  non_negative=True, cfg=network_cfg, blocks={'expand': True})
+
+    # print class name
+    print(f"Loaded {model.__class__.__name__}")
 
     # Check if we should resume training
     if hasattr(configs.training, 'resume_training') and configs.training.resume_training.resume:
@@ -616,7 +623,7 @@ def init_model(configs):
     state_dict = torch.load(pretrain_model_path, map_location=torch.device('cpu'))  # load to cpu before switching to DEVICE, by default cpu?
 
     # Load pretrained weights to model
-    if model_cfg.dinov2_type is not None:
+    if model_cfg.dinov2_type is not None or model_cfg.use_skip:
         # Only keep weights to unmodified modules
         model_dict = model.state_dict()
         filtered_state_dict = {k: v for k, v in state_dict.items() 

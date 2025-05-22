@@ -28,7 +28,7 @@ TRAIN_LIST_PATH = os.path.join(PROJECT_DIR, 'data', 'train_list.txt')
 INPUT_SIZE = (448, 576)
 N_SAMPLES = 100  # Number of samples to visualize
 MODEL_TYPE = 'MiDaS_small'  # Model type to visualize
-CHECKPOINT_FILE = "best_model_midas_small_nolb.pth"  # Model checkpoint to visualize with
+CHECKPOINT_FILE = "best_model_midas_small_skip_nolb.pth"  # Model checkpoint to visualize with
 OUTPUT_DIR = os.path.join(PROJECT_DIR, "visualization", CHECKPOINT_FILE.split('.')[0].replace('best_model_', ''))
 CHECKPOINT_PATH = os.path.join(PROJECT_DIR, "results", CHECKPOINT_FILE)
 
