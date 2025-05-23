@@ -1,5 +1,7 @@
 # Monocular Depth Estimation
 
+Authors: Xichong Ling, Yingzhe Liu, Hairong Luo
+
 ## Overview
 
 Project of Computational Intelligence Lab at ETH Zürich, 2025.
