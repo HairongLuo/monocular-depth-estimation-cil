@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 from torchvision import transforms
 import os
 from network.midas_net_custom import MidasNet_small
+from network.midas_skip import MidasNetSkip
 from main import DepthDataset
 from omegaconf import OmegaConf
 from tqdm import tqdm
@@ -39,6 +40,10 @@ def load_model(model_type, checkpoint_path, model_cfg=None):
     if model_type == 'MiDaS_small':
         if model_cfg.dinov2_type is not None:
             model = MidasNetSemantics(None, features=64, backbone="efficientnet_lite3", exportable=True, 
+                                    non_negative=True, cfg=model_cfg, blocks={'expand': True}, 
+                                    dinov2_type=model_cfg.dinov2_type)
+        elif model_cfg.use_skip:
+            model = MidasNetSkip(None, features=64, backbone="efficientnet_lite3", exportable=True, 
                                     non_negative=True, cfg=model_cfg, blocks={'expand': True}, 
                                     dinov2_type=model_cfg.dinov2_type)
         else:

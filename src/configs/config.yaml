@@ -29,8 +29,10 @@ model:
     use_lb: false
   use_lb: false  # For visualize.py
   loss_function:
-    grad_loss_alpha: 0.2  # Weight for gradient loss
-    edge_loss_beta: 0.5  # Weight for edge-aware loss
+    # grad_loss_alpha: 0.2  # Weight for gradient loss
+    grad_loss_alpha: 0  # Weight for gradient loss
+    # edge_loss_beta: 0.5  # Weight for edge-aware loss
+    edge_loss_beta: 0  # Weight for edge-aware loss
 
 opt:
   evaluate_best_model: false
