@@ -775,7 +775,7 @@ def main():
     # Define transforms
     # midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
     batch_size = config.training.batch_size
-    extra_augmentation = config.augmentation.on
+    extra_augmentation = config.augmentation
 
     if extra_augmentation:
         train_transform = PairAug()
@@ -799,7 +799,8 @@ def main():
         list_file=train_list_file, 
         transform=train_transform,
         target_transform=target_transform,
-        has_gt=True
+        has_gt=True,
+        extra_augmentation=extra_augmentation
     )
     
     # Create test dataset without ground truth

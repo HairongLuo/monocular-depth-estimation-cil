@@ -1,15 +1,14 @@
 paths:
-  usr_name: hailuo          # modify this
+  usr_name: yingzliu          # modify this
   data_dir: /cluster/courses/cil/monocular_depth/data
   results_dir: results
   predictions_dir: predictions
 
 experiment:
   model_name: midas_lb_dgr_grad_edge  # Name to use when saving the model
-  wandb_disable: False
+  wandb_disable: True
 
-augmentation:
-  on: True
+augmentation: True
 
 training:
   n_epoch: 10
