@@ -6,14 +6,21 @@ paths:
   best_model_path: results/best_model.pth
 
 training:
-  n_epoch: 10
+  n_epoch: 16
   batch_size: 4
+  input_size_x: 448
+  input_size_y: 576
+  num_workers: 4
+  pin_memory: True
+  learning_rate: 0.0001
+  weight_decay: 0.0001
 
 model:
   model_type: MiDaS_small
   network:
     use_lb: true
     use_dgr: true
+  dinov2_type: null
   
 opt:
   evaluate_best_model: false

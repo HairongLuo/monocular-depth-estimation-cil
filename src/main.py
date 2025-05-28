@@ -454,11 +454,10 @@ def main():
     predictions_dir = os.path.join(output_dir, 'predictions')
     os.makedirs(predictions_dir, exist_ok=True)
 
-
     # wandb stuff
     wandb.init(mode="disabled" if config.wandb_disable else None,
                project="MonocularDepthEstimation",
-               name=exp_dir)
+               name=exp_name)
     wandb.config = {
         "epochs": config.training.n_epoch,
         "batch_size": config.training.batch_size,
@@ -467,16 +466,21 @@ def main():
     
     # Define transforms
     # midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
+    input_size = [config.training.input_size_x, config.training.input_size_y]
     batch_size = config.training.batch_size
+    num_workers = config.training.num_workers
+    pin_memory = config.training.pin_memory
+    learning_rate = config.training.learning_rate
+    weight_decay = config.training.weight_decay
     train_transform = transforms.Compose([
-        transforms.Resize(INPUT_SIZE),
+        transforms.Resize(input_size),
         transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),  # Data augmentation
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
     
     test_transform = transforms.Compose([
-        transforms.Resize(INPUT_SIZE),
+        transforms.Resize(input_size),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
@@ -515,8 +519,8 @@ def main():
         train_dataset, 
         batch_size=batch_size, 
         shuffle=True, 
-        num_workers=NUM_WORKERS, 
-        pin_memory=PIN_MEMORY,
+        num_workers=num_workers, 
+        pin_memory=pin_memory,
         drop_last=True,
         persistent_workers=True
     )
@@ -525,16 +529,16 @@ def main():
         val_dataset, 
         batch_size=batch_size, 
         shuffle=False, 
-        num_workers=NUM_WORKERS, 
-        pin_memory=PIN_MEMORY
+        num_workers=num_workers, 
+        pin_memory=pin_memory
     )
     
     test_loader = DataLoader(
         test_dataset, 
         batch_size=batch_size, 
         shuffle=False, 
-        num_workers=NUM_WORKERS, 
-        pin_memory=PIN_MEMORY
+        num_workers=num_workers, 
+        pin_memory=pin_memory
     )
     
     print(f"Train size: {len(train_dataset)}, Validation size: {len(val_dataset)}, Test size: {len(test_dataset)}")
@@ -559,7 +563,7 @@ def main():
     
     # Define loss function and optimizer
     criterion = scale_invariant_loss
-    optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
+    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
     # evaluate the best model
     evaluate_best_model = config.opt.evaluate_best_model
@@ -595,4 +599,6 @@ def main():
     print(f"Results saved to {results_dir}")
     print(f"All test depth map predictions saved to {predictions_dir}")
 
-main()
+if __name__ == "__main__":
+     # Call the main function
+    main()
