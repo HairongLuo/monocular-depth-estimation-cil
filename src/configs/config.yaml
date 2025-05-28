@@ -5,7 +5,7 @@ paths:
   predictions_dir: predictions
 
 experiment:
-  model_name: midas_small_nolb_w_grad_loss_edge_loss  # Name to use when saving the model
+  model_name: midas_lb_dgr_grad_edge  # Name to use when saving the model
   wandb_disable: False
 
 training:
@@ -16,7 +16,7 @@ training:
     resume_from_epoch: 6
     run_id: 7iju0bam
   early_stopping:
-    patience: 2
+    patience: 3
     min_delta: 1e-4
 
 model:
@@ -24,10 +24,17 @@ model:
   # dinov2_type: dinov2_vits14
   # dinov2_type: dinov2_vitb14
   dinov2_type: null
-  use_lb: false
+  network:
+    use_lb: True
+    use_dgr: True
+  use_lb: True  # For visualize.py
   loss_function:
+    si_loss_alpha: 0.2  # Weight for scale-invariant loss
+    silog_loss:
+      alpha: 0.5  
+      variance_focus: 0.85
     grad_loss_alpha: 0.2  # Weight for gradient loss
-    edge_loss_beta: 0.5  # Weight for edge-aware loss
+    edge_loss_alpha: 0.5  # Weight for edge-aware loss
 
 opt:
   evaluate_best_model: false
