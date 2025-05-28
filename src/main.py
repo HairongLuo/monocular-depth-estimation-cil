@@ -16,6 +16,7 @@ from omegaconf import OmegaConf
 from network.midas_net import MidasNet
 from network.midas_net_custom import MidasNet_small
 from network.midas_semantics import MidasNetSemantics
+from loguru import logger as guru
 
 BATCH_SIZE = 4
 LEARNING_RATE = 1e-4
@@ -164,6 +165,45 @@ def edge_aware_loss(pred, target, rgb, beta=0.5):
     
     return beta * (dx_loss + dy_loss)
 
+def silog_loss(pred, target, mask=None, variance_focus=0.85, epsilon=1e-6):
+    """
+    Scale-Invariant Logarithmic Loss (SiLog Loss), as described in the MiDaS paper.
+
+    Args:
+        pred (torch.Tensor): Predicted depth map, shape (B, 1, H, W)
+        target (torch.Tensor): Ground truth depth map, shape (B, 1, H, W)
+        mask (torch.Tensor, optional): Validity mask of same shape as pred/target, dtype torch.bool
+        variance_focus (float): Weight for the variance term (between 0 and 1)
+        epsilon (float): Small constant to avoid log(0)
+
+    Returns:
+        torch.Tensor: Scalar SiLog loss value
+    """
+    if pred.shape != target.shape:
+        target = nn.functional.interpolate(target, size=pred.shape[2:], mode='bilinear', align_corners=True)
+    
+    if mask is None:
+        mask = (target > 0).detach()
+    
+    # Apply mask
+    pred = pred[mask]
+    target = target[mask]
+
+    log_diff = torch.log(pred + epsilon) - torch.log(target + epsilon)
+
+    # Mean squared log difference
+    sq_log_diff = log_diff ** 2
+    mean_sq_log_diff = torch.mean(sq_log_diff)
+
+    # Squared mean log difference
+    mean_log_diff = torch.mean(log_diff)
+    sq_mean_log_diff = mean_log_diff ** 2
+
+    # Final SiLog loss
+    loss = mean_sq_log_diff - variance_focus * sq_mean_log_diff
+
+    return loss
+
 def combined_loss(pred, target, config, rgb=None):
     """
     Combined loss function using scale-invariant, gradient, and edge-aware losses.
@@ -175,7 +215,12 @@ def combined_loss(pred, target, config, rgb=None):
         rgb: RGB input image (optional, required for edge-aware loss)
     """
     # Scale-invariant loss
-    si_loss = scale_invariant_loss(pred, target)
+    si_loss = scale_invariant_loss(pred, target) * config.model.loss_function.si_loss_alpha
+
+    # Scale-Invariant Logarithmic Loss (SiLog Loss) in MiDaS paper
+    silog_loss = silog_loss(pred, target, mask=(target > 0).detach(),
+                            variance_focus=config.model.loss_function.silog_loss.variance_focus) \
+    * config.model.loss_function.silog_loss.alpha
     
     # Gradient loss
     grad_loss = gradient_loss(pred, target) * config.model.loss_function.grad_loss_alpha
@@ -183,13 +228,14 @@ def combined_loss(pred, target, config, rgb=None):
     # Edge-aware loss (if RGB image is provided)
     edge_loss = 0.0
     if rgb is not None:
-        edge_loss = edge_aware_loss(pred, target, rgb, config.model.loss_function.edge_loss_beta)
+        edge_loss = edge_aware_loss(pred, target, rgb, config.model.loss_function.edge_loss_alpha)
     
     # Combine losses
-    total_loss = si_loss + grad_loss + edge_loss
+    total_loss = si_loss + silog_loss + grad_loss + edge_loss
     
     return total_loss, {
         'si_loss': si_loss.item(),
+        'silog_loss': silog_loss.item(),
         'grad_loss': grad_loss.item(),
         'edge_loss': edge_loss.item() if rgb is not None else 0.0
     }
