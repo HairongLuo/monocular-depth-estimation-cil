@@ -50,7 +50,7 @@ def target_transform(depth):
     return depth
 
 class DepthDataset(Dataset):
-    def __init__(self, data_dir, list_file, transform=None, target_transform=None, has_gt=True, extra_augmentation=True):
+    def __init__(self, data_dir, list_file, transform=None, target_transform=None, has_gt=True, extra_augmentation=False):
         self.data_dir = data_dir
         self.transform = transform
         self.target_transform = target_transform
