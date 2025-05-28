@@ -6,6 +6,7 @@ import torch.optim as optim
 import wandb
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
+import torchvision.transforms.functional as F
 import torchvision.transforms.v2 as T
 import kornia.augmentation as K
 import kornia.geometry as KG
@@ -72,6 +73,7 @@ class DepthDataset(Dataset):
             
             # Load RGB image
             rgb = Image.open(rgb_path).convert('RGB')
+            rgb = F.to_tensor(rgb).unsqueeze(0)
             
             # Load depth map
             depth = np.load(depth_path).astype(np.float32)
@@ -79,9 +81,12 @@ class DepthDataset(Dataset):
             
             # Apply transformations
             if self.transform:
-                rgb = rgb.float() / 255.
-                depth = depth.unsqueeze(0).float()
+                # rgb = rgb.float() / 255.
+                depth = self.target_transform(depth).unsqueeze(0)
+                # print(f"rgb shape: {rgb.shape}, depth shape: {depth.shape}")
                 rgb, depth = self.transform(rgb, depth)
+                rgb = rgb.squeeze(0)
+                depth = depth.squeeze(0)
             
             # if self.target_transform:
             #     depth = self.target_transform(depth)
@@ -646,6 +651,9 @@ class PairAug(torch.nn.Module):
     """
     def __init__(self):
         super().__init__()
+        self.resize = transforms.Compose([
+            transforms.Resize(INPUT_SIZE)
+        ])
         self.geo = torch.nn.Sequential(        # geo ≡ img & depth
             K.RandomResizedCrop(
                 size=INPUT_SIZE, scale=(0.8, 1.25), ratio=(1.0, 1.0)
@@ -657,7 +665,7 @@ class PairAug(torch.nn.Module):
         self.photo = torch.nn.Sequential(      # photo ≡ img only
             K.ColorJitter(0.4, 0.4, 0.4, 0.15, p=0.8),
             K.RandomGaussianNoise(std=0.005, p=0.25),
-            K.RandomGaussianBlur((3, 3), p=0.2),
+            K.RandomGaussianBlur((3, 3), (0.1, 2.0), p=0.2),
             K.RandomGamma(gamma=(0.9, 1.1), p=0.3),
         )
         self.norm = T.Normalize(
@@ -667,6 +675,7 @@ class PairAug(torch.nn.Module):
 
     def forward(self, img, depth):
         # img, depth are tensors in [0,1], shape (B,C,H,W)/(B,1,H,W)
+        img = self.resize(img)
         pair = torch.cat([img, depth], dim=1)      # (B, C+1, H, W)
         pair = self.geo(pair)
         img, depth = pair[:, :3], pair[:, 3:]      # split back
