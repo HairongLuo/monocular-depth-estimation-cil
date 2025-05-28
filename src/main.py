@@ -7,7 +7,7 @@ import wandb
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 import torchvision.transforms.functional as F
-import torchvision.transforms.v2 as T
+import torchvision.transforms as T
 import kornia.augmentation as K
 import kornia.geometry as KG
 from PIL import Image
@@ -662,7 +662,7 @@ def init_model(configs):
         if os.path.exists(best_model_path):
             print(f"Resuming training from best model: {best_model_path}")
             state_dict = torch.load(best_model_path, map_location=torch.device('cpu'))
-            model.load_state_dict(state_dict)
+            model.load_state_dict(state_dict if 'state_dict' not in state_dict else state_dict['state_dict'], strict=False)
             return model
         else:
             print(f"No best model found at {best_model_path}. Loading pretrained weights instead.")

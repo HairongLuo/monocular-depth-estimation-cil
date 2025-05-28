@@ -1,21 +1,21 @@
 paths:
-  usr_name: yingzliu          # modify this
+  usr_name: hailuo          # modify this
   data_dir: /cluster/courses/cil/monocular_depth/data
   results_dir: results
   predictions_dir: predictions
 
 experiment:
-  model_name: midas_lb_dgr_grad_edge  # Name to use when saving the model
-  wandb_disable: True
+  model_name: midas_semantics_cross_attention_no_lb  # Name to use when saving the model
+  wandb_disable: False
 
-augmentation: True
+augmentation: False
 
 training:
   n_epoch: 10
   batch_size: 4
   resume_training: 
-    resume: False
-    resume_from_epoch: 6
+    resume: True
+    resume_from_epoch: 7
     run_id: 7iju0bam
   early_stopping:
     patience: 3
@@ -23,20 +23,23 @@ training:
 
 model:
   model_type: MiDaS_small
-  # dinov2_type: dinov2_vits14
+  dinov2_type: dinov2_vits14
   # dinov2_type: dinov2_vitb14
-  dinov2_type: null
+  # dinov2_type: null
   network:
-    use_lb: True
-    use_dgr: True
-  use_lb: True  # For visualize.py
+    use_lb: False
+    use_dgr: False
+  use_lb: False  # For visualize.py
+  use_dgr: False  # For visualize.py
   loss_function:
-    si_loss_alpha: 0.2  # Weight for scale-invariant loss
+    si_loss_alpha: 1  # Weight for scale-invariant loss
     silog_loss:
-      alpha: 0.5  
+      alpha: 0  
       variance_focus: 0.85
-    grad_loss_alpha: 0.2  # Weight for gradient loss
-    edge_loss_alpha: 0.5  # Weight for edge-aware loss
+    # grad_loss_alpha: 0.2  # Weight for gradient loss
+    grad_loss_alpha: 0  # Weight for gradient loss
+    # edge_loss_alpha: 0.5  # Weight for edge-aware loss
+    edge_loss_alpha: 0  # Weight for edge-aware loss
 
 opt:
   evaluate_best_model: false
