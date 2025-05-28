@@ -230,7 +230,7 @@ def combined_loss(pred, target, config, rgb=None):
     si_loss = scale_invariant_loss(pred, target) * config.model.loss_function.si_loss_alpha
 
     # Scale-Invariant Logarithmic Loss (SiLog Loss) in MiDaS paper
-    silog_loss = silog_loss(pred, target, mask=(target > 0).detach(),
+    slog_loss = silog_loss(pred, target, mask=(target > 0).detach(),
                             variance_focus=config.model.loss_function.silog_loss.variance_focus) \
     * config.model.loss_function.silog_loss.alpha
     
@@ -243,11 +243,11 @@ def combined_loss(pred, target, config, rgb=None):
         edge_loss = edge_aware_loss(pred, target, rgb, config.model.loss_function.edge_loss_alpha)
     
     # Combine losses
-    total_loss = si_loss + silog_loss + grad_loss + edge_loss
+    total_loss = si_loss + slog_loss + grad_loss + edge_loss
     
     return total_loss, {
         'si_loss': si_loss.item(),
-        'silog_loss': silog_loss.item(),
+        'silog_loss': slog_loss.item(),
         'grad_loss': grad_loss.item(),
         'edge_loss': edge_loss.item() if rgb is not None else 0.0
     }
@@ -284,7 +284,7 @@ def train_model(model, train_loader, val_loader, loss_function, optimizer, devic
         # Training phase
         model.train()
         train_loss = 0.0
-        train_losses_dict = {'si_loss': 0.0, 'grad_loss': 0.0, 'edge_loss': 0.0}
+        train_losses_dict = {'si_loss': 0.0, 'grad_loss': 0.0, 'edge_loss': 0.0, 'silog_loss': 0.0}
         
         for inputs, targets, _ in tqdm(train_loader, desc="Training"):
             inputs, targets = inputs.to(device), targets.to(device)
@@ -327,7 +327,7 @@ def train_model(model, train_loader, val_loader, loss_function, optimizer, devic
         # Validation phase
         model.eval()
         val_loss_combined = 0.0
-        val_losses_dict = {'si_loss': 0.0, 'grad_loss': 0.0, 'edge_loss': 0.0}
+        val_losses_dict = {'si_loss': 0.0, 'grad_loss': 0.0, 'edge_loss': 0.0, 'silog_loss': 0.0}
         
         with torch.no_grad():
             for inputs, targets, _ in tqdm(val_loader, desc="Validation"):
