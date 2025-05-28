@@ -8,6 +8,9 @@ experiment:
   model_name: midas_lb_dgr_grad_edge  # Name to use when saving the model
   wandb_disable: False
 
+augmentation:
+  on: True
+
 training:
   n_epoch: 10
   batch_size: 4

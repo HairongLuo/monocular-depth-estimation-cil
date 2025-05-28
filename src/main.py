@@ -50,11 +50,12 @@ def target_transform(depth):
     return depth
 
 class DepthDataset(Dataset):
-    def __init__(self, data_dir, list_file, transform=None, target_transform=None, has_gt=True):
+    def __init__(self, data_dir, list_file, transform=None, target_transform=None, has_gt=True, extra_augmentation=True):
         self.data_dir = data_dir
         self.transform = transform
         self.target_transform = target_transform
         self.has_gt = has_gt
+        self.extra_augmentation = extra_augmentation
         
         # Read file list
         with open(list_file, 'r') as f:
@@ -74,26 +75,27 @@ class DepthDataset(Dataset):
             
             # Load RGB image
             rgb = Image.open(rgb_path).convert('RGB')
-            rgb = F.to_tensor(rgb).unsqueeze(0)
             
             # Load depth map
             depth = np.load(depth_path).astype(np.float32)
             depth = torch.from_numpy(depth)
             
             # Apply transformations
-            if self.transform:
-                # rgb = rgb.float() / 255.
+            if self.extra_augmentation:
+                rgb = F.to_tensor(rgb).unsqueeze(0)
                 depth = self.target_transform(depth).unsqueeze(0)
-                # print(f"rgb shape: {rgb.shape}, depth shape: {depth.shape}")
                 rgb, depth = self.transform(rgb, depth)
                 rgb = rgb.squeeze(0)
                 depth = depth.squeeze(0)
-            
-            # if self.target_transform:
-            #     depth = self.target_transform(depth)
-            # else:
-            #     # Add channel dimension if not done by transform
-            #     depth = depth.unsqueeze(0)
+            else:
+                if self.transform:
+                    rgb = self.transform(rgb)
+                
+                if self.target_transform:
+                    depth = self.target_transform(depth)
+                else:
+                    # Add channel dimension if not done by transform
+                    depth = depth.unsqueeze(0)     
             
             return rgb, depth, self.file_pairs[idx][0]  # Return filename for saving predictions
         else:
@@ -773,13 +775,17 @@ def main():
     # Define transforms
     # midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
     batch_size = config.training.batch_size
-    # train_transform = transforms.Compose([
-    #     transforms.Resize(INPUT_SIZE),
-    #     transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),  # Data augmentation
-    #     transforms.ToTensor(),
-    #     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    # ])
-    train_transform = PairAug()
+    extra_augmentation = config.augmentation.on
+
+    if extra_augmentation:
+        train_transform = PairAug()
+    else:
+        train_transform = transforms.Compose([
+            transforms.Resize(INPUT_SIZE),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),  # Data augmentation
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
     
     test_transform = transforms.Compose([
         transforms.Resize(INPUT_SIZE),
