@@ -6,6 +6,9 @@ import torch.optim as optim
 import wandb
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
+import torchvision.transforms.v2 as T
+import kornia.augmentation as K
+import kornia.geometry as KG
 from PIL import Image
 # import matplotlib.pyplot as plt
 from tqdm import tqdm
@@ -76,13 +79,15 @@ class DepthDataset(Dataset):
             
             # Apply transformations
             if self.transform:
-                rgb = self.transform(rgb)
+                rgb = rgb.float() / 255.
+                depth = depth.unsqueeze(0).float()
+                rgb, depth = self.transform(rgb, depth)
             
-            if self.target_transform:
-                depth = self.target_transform(depth)
-            else:
-                # Add channel dimension if not done by transform
-                depth = depth.unsqueeze(0)
+            # if self.target_transform:
+            #     depth = self.target_transform(depth)
+            # else:
+            #     # Add channel dimension if not done by transform
+            #     depth = depth.unsqueeze(0)
             
             return rgb, depth, self.file_pairs[idx][0]  # Return filename for saving predictions
         else:
@@ -632,6 +637,43 @@ def init_model(configs):
         model.load_state_dict(state_dict, strict=False)        # load to cpu before switching to DEVICE, by default cpu?
     return model
 
+CROP = min(INPUT_SIZE)
+
+class PairAug(torch.nn.Module):
+    """
+    Apply the *same* geometric transform to img and depth,
+    but photometric only to the RGB.
+    """
+    def __init__(self):
+        super().__init__()
+        self.geo = torch.nn.Sequential(        # geo ≡ img & depth
+            K.RandomResizedCrop(
+                size=INPUT_SIZE, scale=(0.8, 1.25), ratio=(1.0, 1.0)
+            ),
+            K.RandomHorizontalFlip(p=0.5),
+            K.RandomRotation(degrees=3.0, p=0.3,
+                             resample='bilinear', align_corners=False),
+        )
+        self.photo = torch.nn.Sequential(      # photo ≡ img only
+            K.ColorJitter(0.4, 0.4, 0.4, 0.15, p=0.8),
+            K.RandomGaussianNoise(std=0.005, p=0.25),
+            K.RandomGaussianBlur((3, 3), p=0.2),
+            K.RandomGamma(gamma=(0.9, 1.1), p=0.3),
+        )
+        self.norm = T.Normalize(
+            mean=(0.485, 0.456, 0.406),
+            std=(0.229, 0.224, 0.225)
+        )
+
+    def forward(self, img, depth):
+        # img, depth are tensors in [0,1], shape (B,C,H,W)/(B,1,H,W)
+        pair = torch.cat([img, depth], dim=1)      # (B, C+1, H, W)
+        pair = self.geo(pair)
+        img, depth = pair[:, :3], pair[:, 3:]      # split back
+        img = self.photo(img)
+        img = self.norm(img)
+        return img, depth
+
 def main():
     config_path = os.path.join(os.path.dirname(__file__), 'configs', 'config.yaml')
     config = OmegaConf.load(config_path)
@@ -676,12 +718,13 @@ def main():
     # Define transforms
     # midas_transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
     batch_size = config.training.batch_size
-    train_transform = transforms.Compose([
-        transforms.Resize(INPUT_SIZE),
-        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),  # Data augmentation
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
+    # train_transform = transforms.Compose([
+    #     transforms.Resize(INPUT_SIZE),
+    #     transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),  # Data augmentation
+    #     transforms.ToTensor(),
+    #     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    # ])
+    train_transform = PairAug()
     
     test_transform = transforms.Compose([
         transforms.Resize(INPUT_SIZE),
