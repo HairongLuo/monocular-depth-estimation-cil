@@ -82,6 +82,8 @@ class DepthDataset(Dataset):
             
             # Apply transformations
             if self.extra_augmentation:
+                # rgb = F.to_tensor(rgb) / 255.
+                # rgb = rgb.unsqueeze(0)
                 rgb = F.to_tensor(rgb).unsqueeze(0)
                 depth = self.target_transform(depth).unsqueeze(0)
                 rgb, depth = self.transform(rgb, depth)
@@ -226,6 +228,10 @@ def combined_loss(pred, target, config, rgb=None):
         config: Configuration object containing loss weights
         rgb: RGB input image (optional, required for edge-aware loss)
     """
+
+    # if torch.isnan(pred).any():
+    #     raise ValueError(f"prediction has NaN!!!!!!!!!!!!!!!")
+
     # Scale-invariant loss
     si_loss = scale_invariant_loss(pred, target) * config.model.loss_function.si_loss_alpha
 
@@ -704,7 +710,7 @@ class PairAug(torch.nn.Module):
         ])
         self.geo = torch.nn.Sequential(        # geo ≡ img & depth
             K.RandomResizedCrop(
-                size=INPUT_SIZE, scale=(0.8, 1.25), ratio=(1.0, 1.0)
+                size=INPUT_SIZE, scale=(0.8, 1.0), ratio=(1.0, 1.0)
             ),
             K.RandomHorizontalFlip(p=0.5),
             K.RandomRotation(degrees=3.0, p=0.3,
@@ -714,7 +720,7 @@ class PairAug(torch.nn.Module):
             K.ColorJitter(0.4, 0.4, 0.4, 0.15, p=0.8),
             K.RandomGaussianNoise(std=0.005, p=0.25),
             K.RandomGaussianBlur((3, 3), (0.1, 2.0), p=0.2),
-            K.RandomGamma(gamma=(0.9, 1.1), p=0.3),
+            # K.RandomGamma(gamma=(0.9, 1.1), p=0.3),
         )
         self.norm = T.Normalize(
             mean=(0.485, 0.456, 0.406),
@@ -726,9 +732,30 @@ class PairAug(torch.nn.Module):
         img = self.resize(img)
         pair = torch.cat([img, depth], dim=1)      # (B, C+1, H, W)
         pair = self.geo(pair)
+
         img, depth = pair[:, :3], pair[:, 3:]      # split back
+
+        # img = torch.clamp(img, 0, 1)
+        # depth = torch.clamp(depth, min=1e-6, max=1000.0)
+
+        # if torch.isnan(img).any():
+        #     raise ValueError("img has NaN!!!!!!!!!!!!!! before photo")
+
         img = self.photo(img)
+        # img = torch.clamp(img, 0, 1)
+
+        # if torch.isnan(img).any():
+        #     raise ValueError("img has NaN!!!!!!!!!!!!!! between photo and norm")
+
         img = self.norm(img)
+
+        # if torch.isnan(img).any():
+        #     raise ValueError("img has NaN!!!!!!!!!!!!!! after norm")
+        
+        # if torch.isnan(depth).any():
+        #     raise ValueError("depth has NaN!!!!!!!!!!!!")
+
+        # print(torch.isnan(img).any(), torch.isnan(depth).any())
         return img, depth
 
 def main():
