@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from torchvision import transforms
 import os
 from network.midas_net_custom import MidasNet_small
+from network.midas_semantics import MidasNetSemantics
 from main import DepthDataset
 from omegaconf import OmegaConf
 from tqdm import tqdm
