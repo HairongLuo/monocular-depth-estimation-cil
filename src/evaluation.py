@@ -47,13 +47,12 @@ def load_model(model_type, checkpoint_path, model_cfg=None):
                                     non_negative=True, cfg=model_cfg.network, blocks={'expand': True})
 
     checkpoint = torch.load(checkpoint_path)
-    
-    checkpoint = remove_module_prefix(checkpoint)
     if USE_PRETRAINED_ENCODER:
         model.load_state_dict(torch.load(pretrain_path), strict=False)
     if 'model_state_dict' in checkpoint:
         model.load_state_dict(checkpoint['model_state_dict'], strict=False)
     else:
+        checkpoint = remove_module_prefix(checkpoint)
         model.load_state_dict(checkpoint)
     return model
 
@@ -137,7 +136,6 @@ def absolute_relative_error(pred, target):
     """
     assert pred.shape == target.shape, \
         "Pred and target must have the same shape, got {} and {}".format(pred.shape, target.shape)
-    
     # Compute absolute relative error
     abs_rel = torch.mean(torch.abs(target - pred) / (target + 1e-6))
     return abs_rel
@@ -154,9 +152,22 @@ if __name__ == "__main__":
 
     config = OmegaConf.load(CONFIG_PATH)
     model_cfg = config.model
+<<<<<<< HEAD
     print(f"Loading model {MODEL_TYPE} from {CHECKPOINT_PATH}")
     model = load_model(MODEL_TYPE, CHECKPOINT_PATH, model_cfg)
     model = model.to(device)  # Move model to GPU
+=======
+    usr_name = config.paths.usr_name
+    output_dir = f'/home/{usr_name}/monocular-depth-estimation-cil'
+    results_dir = os.path.join(output_dir, 'results')
+    
+
+    model_name = config.experiment.model_name
+    model_type = config.model.model_type
+    checkpoint_path = os.path.join(results_dir, f'best_model_{model_name}.pth')
+    print(f"Loading model {model_type} from {checkpoint_path}")
+    model = load_model(model_type, checkpoint_path, model_cfg)
+>>>>>>> 8c1ec4ac894071ff46adabad21c146791ab4aa40
     print("Model loaded")
 
     print("Loading dataset...")
