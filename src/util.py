@@ -166,18 +166,23 @@ def delta_thres(pred, target, thres=0.1):
         "Pred and target must have the same shape, got {} and {}".format(pred.shape, target.shape)
 
     epsilon = 1e-6
-    # Compute optimal scale s
+    B = pred.shape[0]
+
+    pred = pred.view(B, -1)
+    target = target.view(B, -1)
+
     log_pred = torch.log(pred + epsilon)
     log_target = torch.log(target + epsilon)
-    scale = torch.exp(torch.mean(log_target - log_pred))
 
-    # Align prediction
-    aligned_pred = pred * scale
+    scale = torch.exp(torch.mean(log_target - log_pred, dim=1, keepdim=True))  
 
-    # Compute ratio and delta
+    aligned_pred = pred * scale  
+
     ratio = torch.max(aligned_pred / target, target / aligned_pred)
-    acc = torch.mean((ratio < thres).float())
-    return acc
+    acc = torch.mean((ratio < thres).float(), dim=1)
+
+    return acc.mean()  
+
 
 def absolute_relative_error(pred, target):
     """
