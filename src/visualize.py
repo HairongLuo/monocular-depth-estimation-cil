@@ -17,9 +17,7 @@ import torch
 import matplotlib.pyplot as plt
 from torchvision import transforms
 import os
-from network.midas_net_custom import MidasNet_small
-from network.midas_semantics import MidasNetSemantics
-from main import DepthDataset
+from util import load_dataset, load_model
 from util import per_pixel_scale_invariant_loss
 from omegaconf import OmegaConf
 from tqdm import tqdm
@@ -36,53 +34,6 @@ CHECKPOINT_PATH = os.path.join(PROJECT_DIR, "results", CHECKPOINT_FILE)
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'configs', 'config.yaml')
 
-# Load model
-def load_model(model_type, checkpoint_path, model_cfg=None):
-    if model_type == 'MiDaS_small':
-        if model_cfg.dinov2_type is not None:
-            model = MidasNetSemantics(None, features=64, backbone="efficientnet_lite3", exportable=True, 
-                                    non_negative=True, cfg=model_cfg, blocks={'expand': True}, 
-                                    dinov2_type=model_cfg.dinov2_type)
-        else:
-            model = MidasNet_small(None, features=64, backbone="efficientnet_lite3", exportable=True, 
-                                    non_negative=True, cfg=model_cfg, blocks={'expand': True})
-
-    checkpoint = torch.load(checkpoint_path)
-    if 'model_state_dict' in checkpoint:
-        model.load_state_dict(checkpoint['model_state_dict'])
-    else:
-        model.load_state_dict(checkpoint)
-    return model
-
-def load_dataset():
-    # Define dataset for visualization
-    test_transform = transforms.Compose([
-        transforms.Resize(INPUT_SIZE),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ])
-        
-    def target_transform(depth):
-        # Resize the depth map to match input size
-        depth = torch.nn.functional.interpolate(
-            depth.unsqueeze(0).unsqueeze(0), 
-            size=INPUT_SIZE, 
-            mode='bilinear', 
-            align_corners=True
-        ).squeeze()
-        # Add channel dimension to match model output
-        depth = depth.unsqueeze(0)
-        return depth
-
-    # Create training dataset with ground truth
-    dataset = DepthDataset(
-        data_dir=GT_DIR,
-        list_file=TRAIN_LIST_PATH, 
-        transform=test_transform,
-        target_transform=target_transform,
-        has_gt=True
-    )
-    return dataset
 
 # Visualization function
 def visualize_sample(rgb_image, pred_depth, gt_depth, loss_map=None, save_path=None):
@@ -158,7 +109,7 @@ if __name__ == "__main__":
     print("Model loaded")
 
     print("Loading dataset...")
-    dataset = load_dataset()
+    dataset = load_dataset(INPUT_SIZE, GT_DIR, TRAIN_LIST_PATH)
     print("Dataset loaded")
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
