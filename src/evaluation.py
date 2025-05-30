@@ -59,6 +59,10 @@ def load_model(model_type, checkpoint_path, model_cfg=None):
     else:
         checkpoint = remove_module_prefix(checkpoint)
         model.load_state_dict(checkpoint)
+
+    # Print number of parameters
+    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Number of trainable parameters in the model: {num_params}")
     return model
 
 def load_dataset():

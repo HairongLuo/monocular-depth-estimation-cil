@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import wandb
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 from torchvision import transforms
 import torchvision.transforms.functional as F
 import torchvision.transforms as T
@@ -20,8 +20,8 @@ from omegaconf import OmegaConf
 from network.midas_net import MidasNet
 from network.midas_net_custom import MidasNet_small
 from network.midas_semantics import MidasNetSemantics
-from util import gradient_loss, edge_aware_loss, silog_loss, scale_invariant_loss
-from loguru import logger as guru
+from util import gradient_loss, edge_aware_loss, silog_loss, scale_invariant_loss, ensure_dir, generate_test_predictions
+from dataset import DepthDataset
 
 BATCH_SIZE = 4
 LEARNING_RATE = 1e-4
@@ -33,9 +33,6 @@ NUM_WORKERS = 4
 PIN_MEMORY = True
 PROJECT_DIR = os.path.join(os.path.dirname(__file__), '..')
 
-def ensure_dir(directory):
-    if not os.path.exists(directory):
-        os.makedirs(directory)
 
 def target_transform(depth):
     # Resize the depth map to match input size
@@ -50,69 +47,6 @@ def target_transform(depth):
     depth = depth.unsqueeze(0)
     return depth
 
-class DepthDataset(Dataset):
-    def __init__(self, data_dir, list_file, transform=None, target_transform=None, has_gt=True, extra_augmentation=False):
-        self.data_dir = data_dir
-        self.transform = transform
-        self.target_transform = target_transform
-        self.has_gt = has_gt
-        self.extra_augmentation = extra_augmentation
-        
-        # Read file list
-        with open(list_file, 'r') as f:
-            if has_gt:
-                self.file_pairs = [line.strip().split() for line in f]
-            else:
-                # For test set without ground truth
-                self.file_list = [line.strip() for line in f]
-    
-    def __len__(self):
-        return len(self.file_pairs if self.has_gt else self.file_list)
-    
-    def __getitem__(self, idx):
-        if self.has_gt:
-            rgb_path = os.path.join(self.data_dir, self.file_pairs[idx][0])
-            depth_path = os.path.join(self.data_dir, self.file_pairs[idx][1])
-            
-            # Load RGB image
-            rgb = Image.open(rgb_path).convert('RGB')
-            
-            # Load depth map
-            depth = np.load(depth_path).astype(np.float32)
-            depth = torch.from_numpy(depth)
-            
-            # Apply transformations
-            if self.extra_augmentation:
-                # rgb = F.to_tensor(rgb) / 255.
-                # rgb = rgb.unsqueeze(0)
-                rgb = F.to_tensor(rgb).unsqueeze(0)
-                depth = self.target_transform(depth).unsqueeze(0)
-                rgb, depth = self.transform(rgb, depth)
-                rgb = rgb.squeeze(0)
-                depth = depth.squeeze(0)
-            else:
-                if self.transform:
-                    rgb = self.transform(rgb)
-                
-                if self.target_transform:
-                    depth = self.target_transform(depth)
-                else:
-                    # Add channel dimension if not done by transform
-                    depth = depth.unsqueeze(0)     
-            
-            return rgb, depth, self.file_pairs[idx][0]  # Return filename for saving predictions
-        else:
-            # For test set without ground truth
-            rgb_path = os.path.join(self.data_dir, self.file_list[idx].split(' ')[0])
-            
-            # Load RGB image
-            rgb = Image.open(rgb_path).convert('RGB')
-            
-            # Apply transformations
-            if self.transform:
-                rgb = self.transform(rgb)
-            
-            return rgb, self.file_list[idx]  # No depth, just return the filename
     
 def combined_loss(pred, target, config, rgb=None):
     """
@@ -457,43 +391,6 @@ def evaluate_model(model, val_loader, device):
     
     return metrics
 
-def generate_test_predictions(model, test_loader, device, predictions_dir):
-    """Generate predictions for the test set without ground truth"""
-    model.eval()
-    
-    # Ensure predictions directory exists
-    ensure_dir(predictions_dir)
-    
-    with torch.no_grad():
-        for inputs, filenames in tqdm(test_loader, desc="Generating Test Predictions"):
-            inputs = inputs.to(device)
-            batch_size = inputs.size(0)
-            
-            # Forward pass
-            outputs = model(inputs).unsqueeze(1)
-            
-            # Resize outputs to match original input dimensions (426x560)
-            outputs = nn.functional.interpolate(
-                outputs,
-                size=(426, 560),  # Original input dimensions
-                mode='bilinear',
-                align_corners=True
-            )
-            
-            # Save all test predictions
-            for i in range(batch_size):
-                # Get filename without extension
-                filename = filenames[i].split(' ')[1]
-                
-                # Save depth map prediction as numpy array
-                depth_pred = outputs[i].cpu().squeeze().numpy()
-                np.save(os.path.join(predictions_dir, f"{filename}"), depth_pred)
-            
-            # Clean up memory
-            del inputs, outputs
-        
-        # Clear cache after test predictions
-        torch.cuda.empty_cache()
 
 def init_model(configs):
     usr_name = configs.paths.usr_name

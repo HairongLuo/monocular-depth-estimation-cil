@@ -1,5 +1,14 @@
+import os
+
+import numpy as np
 import torch
 import torch.nn as nn
+from tqdm import tqdm
+
+from torchvision import transforms
+from network.midas_net_custom import MidasNet_small
+from network.midas_semantics import MidasNetSemantics
+from dataset import DepthDataset
 
 def gradient_loss(pred, target):
     """
@@ -197,3 +206,111 @@ def absolute_relative_error(pred, target):
     # Compute absolute relative error
     abs_rel = torch.mean(torch.abs(target - pred) / (target + 1e-6))
     return abs_rel
+
+# Load model
+def load_model(model_type, checkpoint_path, model_cfg=None):
+    if model_type == 'MiDaS_small':
+        if model_cfg.dinov2_type is not None:
+            model = MidasNetSemantics(None, features=64, backbone="efficientnet_lite3", exportable=True, 
+                                    non_negative=True, cfg=model_cfg, blocks={'expand': True}, 
+                                    dinov2_type=model_cfg.dinov2_type)
+        else:
+            model = MidasNet_small(None, features=64, backbone="efficientnet_lite3", exportable=True, 
+                                    non_negative=True, cfg=model_cfg, blocks={'expand': True})
+
+    checkpoint = torch.load(checkpoint_path)
+    if 'model_state_dict' in checkpoint:
+        model.load_state_dict(checkpoint['model_state_dict'])
+    else:
+        model.load_state_dict(checkpoint)
+    return model
+
+def load_dataset(input_size, train_dir, train_list_path, test_dir=None, test_list_path=None):
+    """
+    Loads the dataset for visualization and evaluation (No data augmentation).
+    Args:
+        input_size: Tuple of (height, width)
+        train_dir: Path to the train directory ("/cluster/courses/cil/monocular_depth/data/train")
+        train_list_path: Path to the train list file
+        test_dir: Path to the test directory (optional)
+        test_list_path: Path to the test list file (optional)
+    Returns:
+        dataset: DepthDataset object
+    """
+    test_transform = transforms.Compose([
+        transforms.Resize(input_size),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+        
+    def target_transform(depth):
+        # Resize the depth map to match input size
+        depth = torch.nn.functional.interpolate(
+            depth.unsqueeze(0).unsqueeze(0), 
+            size=input_size, 
+            mode='bilinear', 
+            align_corners=True
+        ).squeeze()
+        # Add channel dimension to match model output
+        depth = depth.unsqueeze(0)
+        return depth
+
+    # Create training dataset with ground truth
+    train_dataset = DepthDataset(
+        data_dir=train_dir,
+        list_file=train_list_path, 
+        transform=test_transform,
+        target_transform=target_transform,
+        has_gt=True
+    )
+    if test_list_path and test_dir:
+        test_dataset = DepthDataset(
+            data_dir=test_dir,
+            list_file=test_list_path,
+            transform=test_transform,
+            has_gt=False  # Test set has no ground truth
+        )
+        return train_dataset, test_dataset
+    return train_dataset
+
+def ensure_dir(directory):
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+def generate_test_predictions(model, test_loader, device, predictions_dir):
+    """Generate predictions for the test set without ground truth"""
+    model.eval()
+    
+    # Ensure predictions directory exists
+    ensure_dir(predictions_dir)
+    
+    with torch.no_grad():
+        for inputs, filenames in tqdm(test_loader, desc="Generating Test Predictions"):
+            inputs = inputs.to(device)
+            batch_size = inputs.size(0)
+            
+            # Forward pass
+            outputs = model(inputs).unsqueeze(1)
+            
+            # Resize outputs to match original input dimensions (426x560)
+            outputs = nn.functional.interpolate(
+                outputs,
+                size=(426, 560),  # Original input dimensions
+                mode='bilinear',
+                align_corners=True
+            )
+            
+            # Save all test predictions
+            for i in range(batch_size):
+                # Get filename without extension
+                filename = filenames[i].split(' ')[1]
+                
+                # Save depth map prediction as numpy array
+                depth_pred = outputs[i].cpu().squeeze().numpy()
+                np.save(os.path.join(predictions_dir, f"{filename}"), depth_pred)
+            
+            # Clean up memory
+            del inputs, outputs
+        
+        # Clear cache after test predictions
+        torch.cuda.empty_cache()
