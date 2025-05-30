@@ -1,3 +1,4 @@
+from collections import OrderedDict
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
@@ -15,20 +16,21 @@ TRAIN_LIST_PATH = os.path.join(PROJECT_DIR, 'data', 'train_list.txt')
 INPUT_SIZE = (448, 576)
 N_SAMPLES = 3  # Number of samples to visualize
 MODEL_TYPE = 'MiDaS_small'  # Model type to visualize
-CHECKPOINT_FILE = "best_model.pth"  # Model checkpoint to visualize with
+CHECKPOINT_FILE = "best_model_midas_small_nolb_w_grad_loss.pth"  # Model checkpoint to visualize with
 CHECKPOINT_PATH = os.path.join(PROJECT_DIR, "results", CHECKPOINT_FILE)
 USE_PRETRAINED_ENCODER = False
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'configs', 'config.yaml')
 N_DELTA = 3
 BASE_THRES = 1.05
 
-from collections import OrderedDict
 def remove_module_prefix(state_dict):
     new_state_dict = OrderedDict()
     for k, v in state_dict.items():
         if k.startswith("module."):
             name = k.replace("module.", "", 1)  # remove only the first "module."
             new_state_dict[name] = v
+        else:
+            new_state_dict[k] = v
     return new_state_dict
 
 # Load model
