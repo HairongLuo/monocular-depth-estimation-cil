@@ -21,6 +21,7 @@ from util import load_dataset, load_model
 from util import per_pixel_scale_invariant_loss
 from omegaconf import OmegaConf
 from tqdm import tqdm
+from collections import OrderedDict
 
 GT_DIR = "/cluster/courses/cil/monocular_depth/data/train"
 PROJECT_DIR = os.path.join(os.path.dirname(__file__), '..')
@@ -29,7 +30,8 @@ INPUT_SIZE = (448, 576)
 N_SAMPLES = 100  # Number of samples to visualize
 MODEL_TYPE = 'MiDaS_small'  # Model type to visualize
 CHECKPOINT_FILE = "best_model_midas_semantics_cross_attention_no_lb.pth"  # Model checkpoint to visualize with
-OUTPUT_DIR = os.path.join(PROJECT_DIR, "visualization", CHECKPOINT_FILE.split('.')[0].replace('best_model_', ''))
+# OUTPUT_DIR = os.path.join(PROJECT_DIR, "visualization", CHECKPOINT_FILE.split('.')[0].replace('best_model_', ''))
+OUTPUT_DIR = os.path.join(PROJECT_DIR, "visualization")
 CHECKPOINT_PATH = os.path.join(PROJECT_DIR, "results", CHECKPOINT_FILE)
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'configs', 'config.yaml')
@@ -99,21 +101,25 @@ def visualize_sample(rgb_image, pred_depth, gt_depth, loss_map=None, save_path=N
         plt.show()
 
 def save_images(rgb_image, pred_depth, gt_depth, index, model_name, loss_map=None, save_path=None):
-    rgb
-    plt.imsave(os.path.join(save_path, f'sample_{index:06d}_rgb.png'), rgb_image.numpy().transpose(1, 2, 0))
-    plt.imsave(os.path.join(save_path, f'sample_{index:06d}_gtd.png'), gt_depth.numpy(), cmap='plasma')
-    plt.imsave(os.path.join(save_path, f'sample_{index:06d}_{model_name}_pred.png'), pred_depth.numpy(), cmap='plasma')
+    plt.imsave(os.path.join(save_path, f'{index:06d}_gtd.png'), gt_depth.numpy(), cmap='plasma')
+    plt.imsave(os.path.join(save_path, f'{index:06d}_{model_name}_pred.png'), pred_depth.numpy(), cmap='plasma')
     if loss_map is not None:
-        plt.imsave(save_path.replace('.png', '_loss_map.png'), loss_map.numpy(), cmap='hot')
+        plt.imsave(os.path.join(save_path, f'{index:06d}_{model_name}_lmap.png'), loss_map.numpy(), cmap='hot')
 
 
 if __name__ == "__main__":
     config = OmegaConf.load(CONFIG_PATH)
     model_cfg = config.model
+    usr_name = config.paths.usr_name
+    output_dir = f'/home/{usr_name}/monocular-depth-estimation-cil'
+    results_dir = os.path.join(output_dir, 'results')
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model_name = config.experiment.model_name
+    model_type = config.model.model_type
+    checkpoint_path = os.path.join(results_dir, f'best_model_{model_name}.pth')
 
-    print(f"Loading model {MODEL_TYPE} from {CHECKPOINT_PATH}")
-    model = load_model(MODEL_TYPE, CHECKPOINT_PATH, model_cfg)
+    print(f"Loading model {model_type} from {checkpoint_path}")
+    model = load_model(model_type, checkpoint_path, model_cfg)
     model = model.to(device)  # Move model to GPU
     print("Model loaded")
 
@@ -141,6 +147,7 @@ if __name__ == "__main__":
             depth_pred = depth_pred.cpu()
 
             per_pixel_si_loss = per_pixel_scale_invariant_loss(depth_pred, depth_gt)
-            visualize_sample(rgb, depth_pred, depth_gt, per_pixel_si_loss, os.path.join(OUTPUT_DIR, f'sample_{i:06d}_vis.png'))
+            # visualize_sample(rgb, depth_pred, depth_gt, per_pixel_si_loss, os.path.join(OUTPUT_DIR, f'sample_{i:06d}_vis.png'))
+            save_images(rgb, depth_pred, depth_gt, i, model_name, per_pixel_si_loss, figures_dir)
 
     print("Visualization saved to ", OUTPUT_DIR)

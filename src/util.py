@@ -9,6 +9,17 @@ from torchvision import transforms
 from network.midas_net_custom import MidasNet_small
 from network.midas_semantics import MidasNetSemantics
 from dataset import DepthDataset
+from collections import OrderedDict
+
+def remove_module_prefix(state_dict):
+    new_state_dict = OrderedDict()
+    for k, v in state_dict.items():
+        if k.startswith("module."):
+            name = k.replace("module.", "", 1)  # remove only the first "module."
+            new_state_dict[name] = v
+        else:
+            new_state_dict[k] = v
+    return new_state_dict
 
 def gradient_loss(pred, target):
     """
@@ -222,6 +233,7 @@ def load_model(model_type, checkpoint_path, model_cfg=None):
     if 'model_state_dict' in checkpoint:
         model.load_state_dict(checkpoint['model_state_dict'])
     else:
+        checkpoint = remove_module_prefix(checkpoint)
         model.load_state_dict(checkpoint)
     return model
 
