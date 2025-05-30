@@ -106,7 +106,7 @@ def silog_loss(pred, target, mask=None, variance_focus=0.85, epsilon=1e-6):
 
     return loss
 
-def scale_invariant_loss(pred, target, epsilon=1e-6):
+def scale_invariant_loss(pred, target, epsilon=1e-6, sqroot=False):
     """
     Computes the scale-invariant loss between the predicted depth and target depth.
     Both pred and target are expected to have shape (B, 1, H, W).
@@ -128,9 +128,12 @@ def scale_invariant_loss(pred, target, epsilon=1e-6):
     n = diff.numel() / diff.shape[0]  # number of pixels per sample.
     term1 = torch.sum(diff ** 2, dim=[1, 2, 3]) / n
     term2 = (torch.sum(diff, dim=[1, 2, 3]) ** 2) / (n ** 2)
-    
-    loss = torch.mean(term1 - term2)
-    return loss
+    loss = term1 - term2
+    # Match the scale-invariant loss definition in Kaggle
+    if sqroot:
+        loss = torch.sqrt(loss)
+
+    return torch.mean(loss)
 
 # Define per-pixel scale-invariant loss function
 def per_pixel_scale_invariant_loss(pred, target):

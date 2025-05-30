@@ -148,7 +148,7 @@ if __name__ == "__main__":
                 depth_pred_batch = depth_pred_batch.unsqueeze(1)
             
             # Calculate metrics for the batch
-            si_loss = scale_invariant_loss(depth_pred_batch, depth_gt_batch)
+            si_loss = scale_invariant_loss(depth_pred_batch, depth_gt_batch, sqroot=True)
             total_si += si_loss * len(rgb_batch)
             
             abs_rel_error = absolute_relative_error(depth_pred_batch, depth_gt_batch)
