@@ -152,11 +152,6 @@ if __name__ == "__main__":
 
     config = OmegaConf.load(CONFIG_PATH)
     model_cfg = config.model
-<<<<<<< HEAD
-    print(f"Loading model {MODEL_TYPE} from {CHECKPOINT_PATH}")
-    model = load_model(MODEL_TYPE, CHECKPOINT_PATH, model_cfg)
-    model = model.to(device)  # Move model to GPU
-=======
     usr_name = config.paths.usr_name
     output_dir = f'/home/{usr_name}/monocular-depth-estimation-cil'
     results_dir = os.path.join(output_dir, 'results')
@@ -167,7 +162,7 @@ if __name__ == "__main__":
     checkpoint_path = os.path.join(results_dir, f'best_model_{model_name}.pth')
     print(f"Loading model {model_type} from {checkpoint_path}")
     model = load_model(model_type, checkpoint_path, model_cfg)
->>>>>>> 8c1ec4ac894071ff46adabad21c146791ab4aa40
+    model = model.to(device)  # Move model to GPU
     print("Model loaded")
 
     print("Loading dataset...")
