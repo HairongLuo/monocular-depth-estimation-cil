@@ -147,6 +147,15 @@ def visualize_sample(rgb_image, pred_depth, gt_depth, loss_map=None, save_path=N
     else:
         plt.show()
 
+def save_images(rgb_image, pred_depth, gt_depth, index, model_name, loss_map=None, save_path=None):
+    rgb
+    plt.imsave(os.path.join(save_path, f'sample_{index:06d}_rgb.png'), rgb_image.numpy().transpose(1, 2, 0))
+    plt.imsave(os.path.join(save_path, f'sample_{index:06d}_gtd.png'), gt_depth.numpy(), cmap='plasma')
+    plt.imsave(os.path.join(save_path, f'sample_{index:06d}_{model_name}_pred.png'), pred_depth.numpy(), cmap='plasma')
+    if loss_map is not None:
+        plt.imsave(save_path.replace('.png', '_loss_map.png'), loss_map.numpy(), cmap='hot')
+
+
 if __name__ == "__main__":
     config = OmegaConf.load(CONFIG_PATH)
     model_cfg = config.model
@@ -162,6 +171,8 @@ if __name__ == "__main__":
     print("Dataset loaded")
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+    figures_dir = os.path.join(OUTPUT_DIR, 'figures')
+    os.makedirs(figures_dir, exist_ok=True)
 
     with torch.no_grad():
         model.eval()

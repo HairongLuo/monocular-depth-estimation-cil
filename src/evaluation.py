@@ -7,6 +7,7 @@ from torchvision import transforms
 import os
 from network.midas_net_custom import MidasNet_small
 from network.midas_semantics import MidasNetSemantics
+from network.u_net import SimpleUNet
 from util import scale_invariant_loss, absolute_relative_error, delta_thres
 from main import DepthDataset
 from omegaconf import OmegaConf
@@ -25,6 +26,7 @@ USE_PRETRAINED_ENCODER = False
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'configs', 'config.yaml')
 N_DELTA = 3
 BASE_THRES = 1.05
+BATCH_SIZE = 4  # Adjust this based on your GPU memory
 
 def remove_module_prefix(state_dict):
     new_state_dict = OrderedDict()
@@ -47,7 +49,8 @@ def load_model(model_type, checkpoint_path, model_cfg=None):
         else:
             model = MidasNet_small(None, features=64, backbone="efficientnet_lite3", exportable=True, 
                                     non_negative=True, cfg=model_cfg.network, blocks={'expand': True})
-
+    elif model_type == 'U_Net':
+        model = SimpleUNet()
     checkpoint = torch.load(checkpoint_path)
     if USE_PRETRAINED_ENCODER:
         model.load_state_dict(torch.load(pretrain_path), strict=False)
@@ -118,10 +121,9 @@ if __name__ == "__main__":
     print("Dataset loaded")
 
     # Create a DataLoader for batch processing
-    batch_size = 32  # Adjust this based on your GPU memory
     dataloader = torch.utils.data.DataLoader(
         dataset,
-        batch_size=batch_size,
+        batch_size=BATCH_SIZE,
         shuffle=False,
         num_workers=4,
         pin_memory=True
