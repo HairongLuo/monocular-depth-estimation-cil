@@ -1,6 +1,7 @@
 *.pth
 *.npy
 *.csv
+*.out
 *slurm*
 outputs/
 *__pycache__*

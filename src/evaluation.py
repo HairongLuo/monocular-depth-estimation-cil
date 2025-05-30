@@ -7,18 +7,20 @@ from torchvision import transforms
 import os
 from network.midas_net_custom import MidasNet_small
 from network.midas_semantics import MidasNetSemantics
+from util import scale_invariant_loss, absolute_relative_error, delta_thres
 from main import DepthDataset
 from omegaconf import OmegaConf
 from tqdm import tqdm
+
 GT_DIR = "/cluster/courses/cil/monocular_depth/data/train"
 PROJECT_DIR = os.path.join(os.path.dirname(__file__), '..')
-OUTPUT_DIR = os.path.join(PROJECT_DIR, "visualization")
 TRAIN_LIST_PATH = os.path.join(PROJECT_DIR, 'data', 'train_list.txt')
 INPUT_SIZE = (448, 576)
 N_SAMPLES = 1000  # Number of samples to visualize
-MODEL_TYPE = 'MiDaS_small'  # Model type to visualize
-CHECKPOINT_FILE = "best_model_midas_small_nolb.pth"  # Model checkpoint to visualize with
-CHECKPOINT_PATH = os.path.join(PROJECT_DIR, "results", CHECKPOINT_FILE)
+# Configure these variables in config.yaml
+# MODEL_TYPE = 'MiDaS_small'  # Model type to visualize
+# CHECKPOINT_FILE = "best_model_midas_small_nolb.pth"  # Model checkpoint to visualize with
+# CHECKPOINT_PATH = os.path.join(PROJECT_DIR, "results", CHECKPOINT_FILE)
 USE_PRETRAINED_ENCODER = False
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'configs', 'config.yaml')
 N_DELTA = 3
@@ -86,60 +88,6 @@ def load_dataset():
     )
     return dataset
 
-# Define per-pixel scale-invariant loss function
-def per_pixel_scale_invariant_loss(pred, target):
-    """
-    Computes the per-pixel scale-invariant loss between the predicted depth and target depth.
-    Both pred and target are expected to have shape (H, W) for a single sample.
-    Returns a tensor of shape (H, W) containing the per-pixel loss values.
-    
-    The scale-invariant loss at each pixel is:
-    L = (log(pred) - log(target))^2 - (mean(log(pred) - log(target)))^2
-    """
-    assert pred.shape == target.shape, \
-        "Pred and target must have the same shape, got {} and {}".format(pred.shape, target.shape)
-    assert (pred > 0).all() and (target > 0).all(), "Pred and target must be positive"
-
-    delta =  torch.log(pred) - torch.log(target)
-    alpha = torch.mean(-delta)
-    calibrated_delta = torch.square(delta + alpha)
-    mean_loss = torch.sqrt(torch.mean(calibrated_delta))
-    return mean_loss
-
-def delta_thres(pred, target, thres=0.1):
-    """
-    Computes the delta threshold metric for depth prediction.
-    Returns a boolean tensor indicating whether each pixel meets the threshold.
-    """
-    assert pred.shape == target.shape, \
-        "Pred and target must have the same shape, got {} and {}".format(pred.shape, target.shape)
-
-    epsilon = 1e-6
-    # Compute optimal scale s
-    log_pred = torch.log(pred + epsilon)
-    log_target = torch.log(target + epsilon)
-    scale = torch.exp(torch.mean(log_target - log_pred))
-
-    # Align prediction
-    aligned_pred = pred * scale
-
-    # Compute ratio and delta
-    ratio = torch.max(aligned_pred / target, target / aligned_pred)
-    acc = torch.mean((ratio < thres).float())
-    return acc
-
-
-def absolute_relative_error(pred, target):
-    """
-    Computes the absolute relative error between predicted and target depth.
-    Returns a scalar tensor representing the mean absolute relative error.
-    """
-    assert pred.shape == target.shape, \
-        "Pred and target must have the same shape, got {} and {}".format(pred.shape, target.shape)
-    # Compute absolute relative error
-    abs_rel = torch.mean(torch.abs(target - pred) / (target + 1e-6))
-    return abs_rel
-
 
 if __name__ == "__main__":
     torch.manual_seed(42)
@@ -169,34 +117,62 @@ if __name__ == "__main__":
     dataset = load_dataset()
     print("Dataset loaded")
 
+    # Create a DataLoader for batch processing
+    batch_size = 32  # Adjust this based on your GPU memory
+    dataloader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=True
+    )
+
     with torch.no_grad():
         model.eval()
         total_si = 0
         total_rel = 0
         total_delta = [0] * N_DELTA
-        # Create a list of random indices
-        indices = random.sample(range(len(dataset)), N_SAMPLES)
-        for i in tqdm(indices, desc="Visualizing samples"):
-            rgb, depth_gt, _ = dataset[i]
-            # Move tensors to GPU
-            rgb = rgb.to(device)
-            depth_gt = depth_gt.to(device)
-            depth_gt = depth_gt.squeeze()
-            depth_pred = model(rgb.unsqueeze(0))
-            depth_pred = depth_pred.cpu()
-            depth_pred = depth_pred.squeeze()
-            depth_gt = depth_gt.cpu()
-            si_loss = per_pixel_scale_invariant_loss(depth_pred, depth_gt)
-            total_si += si_loss
-            abs_rel_error = absolute_relative_error(depth_pred, depth_gt)
-            total_rel += abs_rel_error
+        samples_processed = 0
+        
+        for batch_idx, (rgb_batch, depth_gt_batch, _) in enumerate(tqdm(dataloader, desc="Evaluating batches")):
+            if samples_processed >= N_SAMPLES:
+                break
+                
+            # Move batch to GPU
+            rgb_batch = rgb_batch.to(device)
+            depth_gt_batch = depth_gt_batch.to(device)
+            
+            # Forward pass
+            depth_pred_batch = model(rgb_batch)
+            if depth_pred_batch.dim() == 3:
+                depth_pred_batch = depth_pred_batch.unsqueeze(1)
+            
+            # Calculate metrics for the batch
+            si_loss = scale_invariant_loss(depth_pred_batch, depth_gt_batch)
+            total_si += si_loss * len(rgb_batch)
+            
+            abs_rel_error = absolute_relative_error(depth_pred_batch, depth_gt_batch)
+            total_rel += abs_rel_error * len(rgb_batch)
+            
             for j in range(1, N_DELTA + 1):
                 delta_thres_value = BASE_THRES ** j
-                delta_thres_result = delta_thres(depth_pred, depth_gt, thres=delta_thres_value)
-                total_delta[j-1] += delta_thres_result
-        avg_si_loss = total_si / N_SAMPLES
-        avg_rel_error = total_rel / N_SAMPLES
-        avg_delta = [total / N_SAMPLES for total in total_delta]
+                delta_thres_result = delta_thres(depth_pred_batch, depth_gt_batch, thres=delta_thres_value)
+                total_delta[j-1] += delta_thres_result * len(rgb_batch)
+            
+            samples_processed += len(rgb_batch)
+            if samples_processed > N_SAMPLES:
+                # Adjust the last batch's contribution
+                excess = samples_processed - N_SAMPLES
+                total_si -= si_loss * excess
+                total_rel -= abs_rel_error * excess
+                for j in range(N_DELTA):
+                    total_delta[j] -= delta_thres_result * excess
+                samples_processed = N_SAMPLES
+
+        # Calculate final averages
+        avg_si_loss = total_si / samples_processed
+        avg_rel_error = total_rel / samples_processed
+        avg_delta = [total / samples_processed for total in total_delta]
         print(f"Average Scale-Invariant Loss: {avg_si_loss.item()}")
         print(f"Average Absolute Relative Error: {avg_rel_error.item()}")
         for j in range(1, N_DELTA + 1):

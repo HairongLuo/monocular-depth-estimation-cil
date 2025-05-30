@@ -20,6 +20,7 @@ import os
 from network.midas_net_custom import MidasNet_small
 from network.midas_semantics import MidasNetSemantics
 from main import DepthDataset
+from util import per_pixel_scale_invariant_loss
 from omegaconf import OmegaConf
 from tqdm import tqdm
 
@@ -82,30 +83,6 @@ def load_dataset():
         has_gt=True
     )
     return dataset
-
-# Define per-pixel scale-invariant loss function
-def per_pixel_scale_invariant_loss(pred, target):
-    """
-    Computes the per-pixel scale-invariant loss between the predicted depth and target depth.
-    Both pred and target are expected to have shape (H, W) for a single sample.
-    Returns a tensor of shape (H, W) containing the per-pixel loss values.
-    
-    The scale-invariant loss at each pixel is:
-    L = (log(pred) - log(target))^2 - (mean(log(pred) - log(target)))^2
-    """
-    assert pred.shape == target.shape, \
-        "Pred and target must have the same shape, got {} and {}".format(pred.shape, target.shape)
-    assert (pred > 0).all() and (target > 0).all(), "Pred and target must be positive"
-
-    # Compute log differences at each pixel
-    log_diff = torch.log(pred) - torch.log(target)
-    
-    alpha = -torch.mean(log_diff)
-    
-    # Compute per-pixel scale-invariant loss
-    per_pixel_loss = (log_diff + alpha) ** 2
-    
-    return per_pixel_loss
 
 # Visualization function
 def visualize_sample(rgb_image, pred_depth, gt_depth, loss_map=None, save_path=None):
