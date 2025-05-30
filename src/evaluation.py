@@ -1,4 +1,5 @@
 from collections import OrderedDict
+import random
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
@@ -14,9 +15,9 @@ PROJECT_DIR = os.path.join(os.path.dirname(__file__), '..')
 OUTPUT_DIR = os.path.join(PROJECT_DIR, "visualization")
 TRAIN_LIST_PATH = os.path.join(PROJECT_DIR, 'data', 'train_list.txt')
 INPUT_SIZE = (448, 576)
-N_SAMPLES = 3  # Number of samples to visualize
+N_SAMPLES = 1000  # Number of samples to visualize
 MODEL_TYPE = 'MiDaS_small'  # Model type to visualize
-CHECKPOINT_FILE = "best_model_midas_small_nolb_w_grad_loss.pth"  # Model checkpoint to visualize with
+CHECKPOINT_FILE = "best_model_midas_small_nolb.pth"  # Model checkpoint to visualize with
 CHECKPOINT_PATH = os.path.join(PROJECT_DIR, "results", CHECKPOINT_FILE)
 USE_PRETRAINED_ENCODER = False
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'configs', 'config.yaml')
@@ -143,10 +144,19 @@ def absolute_relative_error(pred, target):
 
 
 if __name__ == "__main__":
+    torch.manual_seed(42)
+    torch.cuda.manual_seed(42)
+    random.seed(42)
+
+    # Set device
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
+
     config = OmegaConf.load(CONFIG_PATH)
     model_cfg = config.model
     print(f"Loading model {MODEL_TYPE} from {CHECKPOINT_PATH}")
     model = load_model(MODEL_TYPE, CHECKPOINT_PATH, model_cfg)
+    model = model.to(device)  # Move model to GPU
     print("Model loaded")
 
     print("Loading dataset...")
@@ -158,11 +168,18 @@ if __name__ == "__main__":
         total_si = 0
         total_rel = 0
         total_delta = [0] * N_DELTA
-        for i in tqdm(range(N_SAMPLES), desc="Visualizing samples"):
+        # Create a list of random indices
+        indices = random.sample(range(len(dataset)), N_SAMPLES)
+        for i in tqdm(indices, desc="Visualizing samples"):
             rgb, depth_gt, _ = dataset[i]
+            # Move tensors to GPU
+            rgb = rgb.to(device)
+            depth_gt = depth_gt.to(device)
             depth_gt = depth_gt.squeeze()
             depth_pred = model(rgb.unsqueeze(0))
+            depth_pred = depth_pred.cpu()
             depth_pred = depth_pred.squeeze()
+            depth_gt = depth_gt.cpu()
             si_loss = per_pixel_scale_invariant_loss(depth_pred, depth_gt)
             total_si += si_loss
             abs_rel_error = absolute_relative_error(depth_pred, depth_gt)

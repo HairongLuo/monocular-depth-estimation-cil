@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 from torchvision import transforms
 import os
 from network.midas_net_custom import MidasNet_small
+from network.midas_semantics import MidasNetSemantics
 from main import DepthDataset
 from omegaconf import OmegaConf
 from tqdm import tqdm
@@ -28,7 +29,7 @@ TRAIN_LIST_PATH = os.path.join(PROJECT_DIR, 'data', 'train_list.txt')
 INPUT_SIZE = (448, 576)
 N_SAMPLES = 100  # Number of samples to visualize
 MODEL_TYPE = 'MiDaS_small'  # Model type to visualize
-CHECKPOINT_FILE = "best_model_midas_lb_dgr_grad_edge.pth"  # Model checkpoint to visualize with
+CHECKPOINT_FILE = "best_model_midas_semantics_cross_attention_no_lb.pth"  # Model checkpoint to visualize with
 OUTPUT_DIR = os.path.join(PROJECT_DIR, "visualization", CHECKPOINT_FILE.split('.')[0].replace('best_model_', ''))
 CHECKPOINT_PATH = os.path.join(PROJECT_DIR, "results", CHECKPOINT_FILE)
 
@@ -172,9 +173,11 @@ def visualize_sample(rgb_image, pred_depth, gt_depth, loss_map=None, save_path=N
 if __name__ == "__main__":
     config = OmegaConf.load(CONFIG_PATH)
     model_cfg = config.model
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     print(f"Loading model {MODEL_TYPE} from {CHECKPOINT_PATH}")
     model = load_model(MODEL_TYPE, CHECKPOINT_PATH, model_cfg)
+    model = model.to(device)  # Move model to GPU
     print("Model loaded")
 
     print("Loading dataset...")
@@ -188,9 +191,16 @@ if __name__ == "__main__":
 
         for i in tqdm(range(N_SAMPLES), desc="Visualizing samples"):
             rgb, depth_gt, _ = dataset[i]
+
+            rgb = rgb.to(device)
+            depth_gt = depth_gt.to(device)
             depth_gt = depth_gt.squeeze()
             depth_pred = model(rgb.unsqueeze(0))
             depth_pred = depth_pred.squeeze()
+            rgb = rgb.cpu()
+            depth_gt = depth_gt.cpu()
+            depth_pred = depth_pred.cpu()
+
             per_pixel_si_loss = per_pixel_scale_invariant_loss(depth_pred, depth_gt)
             visualize_sample(rgb, depth_pred, depth_gt, per_pixel_si_loss, os.path.join(OUTPUT_DIR, f'sample_{i:06d}_vis.png'))
 
